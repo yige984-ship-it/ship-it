@@ -1,0 +1,8 @@
+{
+  "label": "本地规划示例价格，非供应商实时报价；上线前需核实替换",
+  "currency": "CNY",
+  "video_per_second": 0.8,
+  "keyframe_per_image": 0.5,
+  "voice_per_1000_chars": 1.0,
+  "reserve_ratio": 0.15
+}
