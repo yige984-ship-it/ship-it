@@ -14,6 +14,7 @@ from .image_assets import persist_image
 from .adapters import KeyframeAnimation
 from pydantic import BaseModel, ConfigDict, Field
 from .planner import money
+from .image_providers import SiliconImages, AliyunImages
 
 ROOT = Path(__file__).resolve().parent.parent
 BASE = 'https://api.atlascloud.ai/api/v1'
@@ -42,13 +43,14 @@ class AtlasImages:
 
 class QuoteInput(BaseModel):
     model_config = ConfigDict(extra='forbid')
+    provider_id: str | None = Field(default=None, max_length=80)
     revision: int = Field(ge=1)
     shot_id: int = Field(ge=1, le=12)
 
 class ConfirmInput(BaseModel):
     model_config = ConfigDict(extra='forbid')
     confirmed: bool
-    max_cost_cny: float = Field(gt=0, le=150, allow_inf_nan=False)
+    max_cost_cny: float = Field(ge=0, le=150, allow_inf_nan=False)
 
 
 def install_image_routes(app, data, get_project, save_project, project_lock):
@@ -69,36 +71,61 @@ def install_image_routes(app, data, get_project, save_project, project_lock):
     def all_jobs(pid):
         with connect() as c:
             return [j for row in c.execute('SELECT body FROM images') if (j := json.loads(row[0]))['project_id'] == pid]
-    def settings():
+    def profiles():
+        return json.loads((ROOT / 'config/image-providers.json').read_text())
+    def key_name(cfg):
+        return {'atlas':'ATLASCLOUD_API_KEY','siliconflow':'SILICONFLOW_API_KEY','aliyun':'DASHSCOPE_API_KEY'}[cfg['provider']]
+    def adapter(cfg):
+        return {'atlas':AtlasImages,'siliconflow':SiliconImages,'aliyun':AliyunImages}[cfg['provider']]()
+    def settings(provider_id=None):
         try:
-            cfg = json.loads(Path(os.getenv('IMAGE_PROVIDER_FILE', str(ROOT / 'config/image-provider.json'))).read_text())
-            price = cfg.get('price_per_image_cny')
-            valid = (type(price) in (float, int) and math.isfinite(price) and 0 < price <= 150
-                     and bool(cfg.get('price_source')) and bool(cfg.get('price_verified_at')))
-            # This adapter intentionally supports only the schema verified in this release.
-            valid = valid and cfg.get('model') == 'bytedance/seedream-v5.0-lite' and cfg.get('size') == '1600*2848' and cfg.get('output_format') == 'png'
-        except (ValueError, OSError):
+            if provider_id is None and os.getenv('IMAGE_PROVIDER_FILE'):
+                cfg=json.loads(Path(os.environ['IMAGE_PROVIDER_FILE']).read_text())
+            elif provider_id == 'atlas':
+                cfg=json.loads((ROOT / 'config/image-provider.json').read_text())
+            else:
+                cfg=next((p for p in profiles() if p['id']==(provider_id or 'kolors-free')), None)
+                if cfg is None: return {}, '未知图片服务选项'
+            price=cfg.get('price_per_image_cny')
+            valid=(type(price) in (int,float) and math.isfinite(price) and 0 <= price <= 150
+                   and bool(cfg.get('price_source')) and bool(cfg.get('price_verified_at')))
+            provider=cfg.get('provider')
+            if provider=='atlas':
+                valid=valid and price != 0 and cfg.get('model')=='bytedance/seedream-v5.0-lite' and cfg.get('size')=='1600*2848' and cfg.get('output_format')=='png'
+            elif provider=='siliconflow':
+                valid=valid and cfg.get('model') in ('Kwai-Kolors/Kolors','Tongyi-MAI/Z-Image-Turbo') and cfg.get('image_size')=={'Kwai-Kolors/Kolors':'1024x1024','Tongyi-MAI/Z-Image-Turbo':'576x1024'}.get(cfg.get('model'))
+                if price==0: valid=valid and cfg.get('model')=='Kwai-Kolors/Kolors'
+            elif provider=='aliyun':
+                valid=valid and price != 0 and cfg.get('model')=='wanx2.0-t2i-turbo' and cfg.get('size')=='768*1344'
+            else: return {}, '不支持的图片供应商'
+        except (ValueError,OSError,TypeError):
             return {}, '图片服务配置文件无法读取'
-        if os.getenv('ENABLE_PAID_IMAGES', 'false').lower() != 'true':
-            return cfg, '真实图片收费开关未开启'
-        if not os.getenv('ATLASCLOUD_API_KEY'):
-            return cfg, '服务器尚未配置图片服务密钥'
-        if not valid:
-            return cfg, '请配置已核实的人民币单图估价、来源与日期'
-        return cfg, None
-    def ready():
-        cfg, reason = settings()
-        if reason:
-            raise HTTPException(503, reason)
+        if not valid: return cfg, '请配置已核实的人民币单图估价、来源与日期及有效模型参数'
+        enabled='ENABLE_FREE_IMAGES' if price==0 else 'ENABLE_PAID_IMAGES'
+        if os.getenv(enabled,'true' if price==0 else 'false').lower()!='true':
+            return cfg, '免费图片开关未开启' if price==0 else '真实图片收费开关未开启'
+        if not os.getenv(key_name(cfg)):
+            return cfg, '服务器尚未配置图片服务密钥：'+key_name(cfg)
+        return cfg,None
+    def ready(provider_id=None):
+        cfg,reason=settings(provider_id)
+        if reason: raise HTTPException(503,reason)
         return cfg
-
+    def summary(provider_id=None):
+        cfg,reason=settings(provider_id)
+        return dict(provider_id=provider_id or cfg.get('id','atlas'), provider=cfg.get('provider'),
+                    ready=reason is None,reason=reason,model=cfg.get('model'),
+                    price_per_image_cny=cfg.get('price_per_image_cny'),price_source=cfg.get('price_source'),
+                    price_verified_at=cfg.get('price_verified_at'),
+                    notice='默认免费优先，不自动切换付费模型；配置估价非实际账单。视频与声音仍为模拟。')
     @app.get('/api/image-provider')
-    def provider():
-        cfg, reason = settings()
-        return {'provider': 'atlas', 'ready': reason is None, 'reason': reason,
-                'model': cfg.get('model'), 'price_per_image_cny': cfg.get('price_per_image_cny'),
-                'price_source': cfg.get('price_source'), 'price_verified_at': cfg.get('price_verified_at'),
-                'notice': '按张确认收费；此处为配置估价，非供应商实际账单。仅生成图片，视频与声音仍为模拟。'}
+    def provider(provider_id: str | None=None):
+        return summary(provider_id)
+    @app.get('/api/image-providers')
+    def providers():
+        items=[summary(p['id']) for p in profiles()]+[summary('atlas')]
+        items.sort(key=lambda p: float('inf') if p['price_per_image_cny'] is None else p['price_per_image_cny'])
+        return {'default_provider_id':'kolors-free','automatic_paid_fallback':False,'providers':items}
 
     @app.get('/api/projects/{pid}/images')
     def list_images(pid: str):
@@ -107,7 +134,7 @@ def install_image_routes(app, data, get_project, save_project, project_lock):
 
     @app.post('/api/projects/{pid}/image-quotes', status_code=201)
     def image_quote(pid: str, payload: QuoteInput):
-        cfg = ready()
+        cfg = ready(payload.provider_id)
         with project_lock:
             p = get_project(pid)
             if p.get('revision', 1) != payload.revision or p['status'] == 'rendering_mock':
@@ -126,7 +153,7 @@ def install_image_routes(app, data, get_project, save_project, project_lock):
             characters = '\n'.join(f"{c['name']}：{c['appearance']}；{c['consistency']}" for c in p['characters'])
             job = dict(id=uuid.uuid4().hex, project_id=pid, revision=payload.revision,
                        shot_id=payload.shot_id, status='quoted', reserved_cny=amount,
-                       config=cfg, prompt=shot['prompt'] + '\n角色设定：' + characters,
+                       config=cfg, provider_id=payload.provider_id, prompt=shot['prompt'] + '\n角色设定：' + characters,
                        expires_at=time.time()+600, prediction_id=None, output_url=None,
                        actual_cost_cny=None, error=None)
             save(job)
@@ -134,7 +161,9 @@ def install_image_routes(app, data, get_project, save_project, project_lock):
 
     @app.post('/api/image-jobs/{jid}/submit')
     def submit(jid: str, payload: ConfirmInput):
-        cfg = ready()
+        initial = get(jid)
+        cfg = ready(initial.get('provider_id'))
+        selected_adapter = adapter(cfg)
         with project_lock:
             job = get(jid)
             if job['status'] != 'quoted':
@@ -149,6 +178,13 @@ def install_image_routes(app, data, get_project, save_project, project_lock):
             cap = min(p['budget_cny'], float(os.getenv('BUDGET_CAP_CNY', '150')), 150)
             if p['estimated_cny'] + sum(j['reserved_cny'] for j in all_jobs(p['id'])) > cap:
                 raise HTTPException(409, '预算上限已改变，禁止提交')
+            if len(job['prompt']) > cfg.get('prompt_limit', 12000):
+                raise HTTPException(422, '提示词与角色设定合计超过当前模型限制，请精简方案后重新报价')
+            if hasattr(selected_adapter,'preflight'):
+                try:
+                    selected_adapter.preflight(cfg)
+                except Exception:
+                    raise HTTPException(503, '图片价格或账户模型可用性未能核实，未提交生成；不会切换收费服务')
             # Persist before network I/O; a restart cannot trigger another POST.
             job['status'] = 'submitting'
             # Real submission means total spend is unknown until a provider bill exists.
@@ -156,8 +192,15 @@ def install_image_routes(app, data, get_project, save_project, project_lock):
             save_project(p)
             save(job)
         try:
-            prediction = AtlasImages().submit(job['prompt'], cfg)
-            job.update(status='processing', prediction_id=prediction)
+            prediction = selected_adapter.submit(job['prompt'], cfg)
+            if isinstance(prediction,dict):
+                url=prediction['outputs'][0]
+                parsed=urlparse(url)
+                if parsed.scheme!='https' or not parsed.hostname or parsed.username or parsed.password:
+                    raise ValueError('Invalid output URL')
+                job.update(status='completed_real_image', output_url=url)
+            else:
+                job.update(status='processing', prediction_id=prediction)
         except Exception:
             # Do not log provider response or exception text: they may contain secrets.
             job.update(status='submission_unknown', error='提交结果不明，可能已计费；禁止自动重试，请核对供应商后台')
@@ -240,14 +283,14 @@ def install_image_routes(app, data, get_project, save_project, project_lock):
 
     @app.post('/api/image-jobs/{jid}/refresh')
     def refresh(jid: str):
-        if not os.getenv('ATLASCLOUD_API_KEY'):
-            raise HTTPException(503, '服务器尚未配置图片服务密钥')
         with project_lock:
             job = get(jid)
+            if not os.getenv(key_name(job['config'])):
+                raise HTTPException(503, '服务器尚未配置对应图片服务密钥')
             if job['status'] != 'processing':
                 return job
             try:
-                result = AtlasImages().poll(job['prediction_id'])
+                result = adapter(job['config']).poll(job['prediction_id'])
                 status = result.get('status')
                 if status in ('completed', 'succeeded'):
                     outputs = result.get('outputs', [])

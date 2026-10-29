@@ -1,0 +1,23 @@
+[
+  {
+    "id": "kolors-free", "provider": "siliconflow", "model": "Kwai-Kolors/Kolors",
+    "image_size": "1024x1024", "price_per_image_cny": 0,
+    "price_source": "https://www.siliconflow.cn/pricing", "price_verified_at": "2026-10-29",
+    "schema_url": "https://docs.siliconflow.com/cn/userguide/capabilities/images.md",
+    "prompt_limit": 2000
+  },
+  {
+    "id": "wanx-budget", "provider": "aliyun", "model": "wanx2.0-t2i-turbo",
+    "size": "768*1344", "price_per_image_cny": 0.04,
+    "price_source": "https://help.aliyun.com/zh/model-studio/model-pricing", "price_verified_at": "2026-10-29",
+    "schema_url": "https://help.aliyun.com/zh/model-studio/text-to-image-v2-api-reference",
+    "prompt_limit": 800
+  },
+  {
+    "id": "zimage-budget", "provider": "siliconflow", "model": "Tongyi-MAI/Z-Image-Turbo",
+    "image_size": "576x1024", "price_per_image_cny": 0.10,
+    "price_source": "https://www.siliconflow.cn/pricing", "price_verified_at": "2026-10-29",
+    "schema_url": "https://docs.siliconflow.com/cn/api-reference/images/images-generations.md",
+    "prompt_limit": 2000
+  }
+]

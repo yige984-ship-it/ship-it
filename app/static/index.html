@@ -3,11 +3,11 @@
 <header><small>修仙创作工作台 · MVP</small><h1>Xiuxian AI Studio</h1><p>从中文小说开始，规划一集 120 秒的国漫。</p></header>
 <section><strong>模拟模式 · 不调用收费 API</strong><p class="muted">分镜与角色为本地规则草案。模拟影片是带水印的色卡和静音，不是真实国漫或配音。价格来自示例配置，不是实时报价。</p></section>
 <section><label for="style">国风风格</label><select id="style"><option value="xianxia">仙侠国漫</option><option value="ink">中国水墨</option><option value="gufeng">古风工笔</option></select><label for="novel">小说正文（最多 20,000 字）</label><textarea id="novel" maxlength="20000" placeholder="少年修士踏入山门，云海中传来一声剑鸣……"></textarea><label for="budget">预算上限（人民币，最高150元）</label><input id="budget" type="number" min="0.01" max="150" step="0.01" value="150"><p><button id="plan">生成分镜计划</button></p><p id="notice" role="status" aria-live="polite"></p></section>
-<section id="result" hidden><h2>制作计划</h2><p id="summary"></p><p id="characters"></p><button id="render">合成模拟 MP4</button><button id="json">下载分镜 JSON</button><div id="download"></div><details id="editor"><summary>编辑角色与分镜</summary><p>总时长须为120秒；修改后旧成片失效，需重新合成。价格按保存时重新计算。</p><div id="fields"></div><button id="save">保存修改并重算预算</button></details><section><h3>真实文生图（逐张确认收费）</h3><p id="imageProvider">检查配置中…</p><p>请先保存方案修改，再获取单张报价。生成图片不会自动生成真实视频或配音。</p><button id="loadImages">查看图片任务</button><div id="imageJobs"></div></section><div id="shots"></div></section>
+<section id="result" hidden><h2>制作计划</h2><p id="summary"></p><p id="characters"></p><button id="render">合成模拟 MP4</button><button id="json">下载分镜 JSON</button><div id="download"></div><details id="editor"><summary>编辑角色与分镜</summary><p>总时长须为120秒；修改后旧成片失效，需重新合成。价格按保存时重新计算。</p><div id="fields"></div><button id="save">保存修改并重算预算</button></details><section><h3>真实文生图（免费优先）</h3><label for="imageChoice">图片服务（按配置价格从低到高）</label><select id="imageChoice"></select><p id="imageProvider">检查配置中…</p><p>请先保存方案修改，再获取单张报价。生成图片不会自动生成真实视频或配音。</p><button id="loadImages">查看图片任务</button><div id="imageJobs"></div></section><div id="shots"></div></section>
 <script>
 let project, timer, imageReady=false;const $=id=>document.getElementById(id);const say=t=>$('notice').textContent=t;
 async function api(path,body,method='POST'){const r=await fetch(path,body===undefined?{}:{method,headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const data=await r.json();if(!r.ok)throw Error(typeof data.detail==='string'?data.detail:JSON.stringify(data.detail));return data}
-function show(p){project=p;buildEditor(p);localStorage.setItem('xiuxianProject',p.id);$('result').hidden=false;$('summary').textContent=`状态：${p.status} · ${p.duration}秒 · 估算 ¥${p.estimated_cny}（含预留） · 实际API支出 ${p.actual_api_cost_cny===null?'待供应商账单核对':'¥'+p.actual_api_cost_cny}。${p.budget_message}`;$('characters').textContent=p.characters.map(c=>`${c.name}：${c.appearance}；${c.source}`).join('\n');$('render').disabled=!p.budget_ok||p.status==='rendering_mock';$('shots').replaceChildren();p.shots.forEach(s=>{let a=document.createElement('article');a.textContent=`镜头 ${s.id} · ${s.duration}秒 · ${s.strategy} · ¥${s.estimated_cny} · ${s.video_task}`;let t=document.createElement('p');t.textContent=s.prompt;a.append(t);const b=document.createElement('button');b.textContent='获取此镜头图片报价';b.disabled=!imageReady||p.status==='rendering_mock';b.onclick=()=>quoteImage(s.id);a.append(b);$('shots').append(a)});$('download').replaceChildren();if(p.download_url){let v=document.createElement('video');v.controls=true;v.playsInline=true;v.preload='metadata';v.src=p.preview_url||p.download_url;v.setAttribute('aria-label','模拟视频预览');$('download').append(v);let a=document.createElement('a');a.href=p.download_url;a.textContent='下载模拟 MP4（色卡与静音）';$('download').append(a)}if(p.error)say(p.error)}
+function show(p){project=p;buildEditor(p);localStorage.setItem('xiuxianProject',p.id);$('result').hidden=false;$('summary').textContent=`状态：${p.status} · ${p.duration}秒 · 估算 ¥${p.estimated_cny}（含预留） · 实际API支出 ${p.actual_api_cost_cny===null?'待供应商账单核对':'¥'+p.actual_api_cost_cny}。${p.budget_message}`;$('characters').textContent=p.characters.map(c=>`${c.name}：${c.appearance}；${c.source}`).join('\n');$('render').disabled=!p.budget_ok||p.status==='rendering_mock';$('shots').replaceChildren();p.shots.forEach(s=>{let a=document.createElement('article');a.textContent=`镜头 ${s.id} · ${s.duration}秒 · ${s.strategy} · ¥${s.estimated_cny} · ${s.video_task}`;let t=document.createElement('p');t.textContent=s.prompt;a.append(t);const b=document.createElement('button');b.textContent='查看此镜头生成方案';b.disabled=!imageReady||p.status==='rendering_mock';b.onclick=()=>quoteImage(s.id);a.append(b);$('shots').append(a)});$('download').replaceChildren();if(p.download_url){let v=document.createElement('video');v.controls=true;v.playsInline=true;v.preload='metadata';v.src=p.preview_url||p.download_url;v.setAttribute('aria-label','模拟视频预览');$('download').append(v);let a=document.createElement('a');a.href=p.download_url;a.textContent='下载模拟 MP4（色卡与静音）';$('download').append(a)}if(p.error)say(p.error)}
 
 function field(parent,label,value,key,kind='text'){
  const l=document.createElement('label');l.textContent=label;
@@ -39,13 +39,13 @@ $('render').onclick=async()=>{const id=project.id;$('render').disabled=true;$('p
 $('json').onclick=()=>{const url=URL.createObjectURL(new Blob([JSON.stringify(project,null,2)],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download='storyboard.json';a.click();URL.revokeObjectURL(url)};
 
 async function providerInfo(){
- try{const p=await api('/api/image-provider');imageReady=p.ready;$('imageProvider').textContent=p.ready?`${p.model} · 配置估价 ¥${p.price_per_image_cny}/张 · ${p.price_source} · ${p.price_verified_at}`:p.reason;if(project)show(project)}catch(e){$('imageProvider').textContent='图片服务状态读取失败：'+e.message}
+ try{const choice=$('imageChoice').value;const p=await api('/api/image-provider'+(choice?'?provider_id='+encodeURIComponent(choice):''));imageReady=p.ready;$('imageProvider').textContent=p.ready?`${p.model} · ${p.price_per_image_cny===0?'官方标为免费（提交前复核）':'配置估价 ¥'+p.price_per_image_cny+'/张'} · ${p.price_source} · ${p.price_verified_at}`:p.reason;if(project)show(project)}catch(e){$('imageProvider').textContent='图片服务状态读取失败：'+e.message}
 }
 async function quoteImage(shotId){
- try{const q=await api('/api/projects/'+project.id+'/image-quotes',{revision:project.revision||1,shot_id:shotId});
- const ok=window.confirm(`将向外部图片服务发送本镜头提示词及角色设定。\n模型：${q.config.model}\n单张预留：¥${q.reserved_cny}，实际费用以供应商账单为准。\n确认提交这一张收费任务？`);
+ try{const q=await api('/api/projects/'+project.id+'/image-quotes',{revision:project.revision||1,shot_id:shotId,provider_id:$('imageChoice').value||null});
+ const ok=window.confirm(`将向外部图片服务发送本镜头提示词及角色设定。\n模型：${q.config.model}\n单张预留：¥${q.reserved_cny}，实际费用以供应商账单为准。\n${q.reserved_cny===0?'官方标为免费；将先检查价格与账户模型可用性，失败不会转收费。是否提交？':'确认提交这一张收费任务？'}`);
  if(ok){const j=await api('/api/image-jobs/'+q.id+'/submit',{confirmed:true,max_cost_cny:q.reserved_cny});say('图片任务状态：'+j.status+(j.error?'；'+j.error:''))}
- else say('未提交收费任务。此报价预留保留；当前版本不自动释放预留。');
+ else say('未提交生成任务。此报价预留保留；免费选项预留为0。');
  await loadImages();
  }catch(e){say(e.message)}
 }
@@ -67,6 +67,10 @@ if(j.output_url){const img=document.createElement('img');img.src=j.asset_url||j.
  }catch(e){say(e.message)}
 }
 $('loadImages').onclick=loadImages;
-providerInfo();
+$('imageChoice').onchange=providerInfo;
+async function loadProviders(){
+ try{const data=await api('/api/image-providers');const select=$('imageChoice');select.replaceChildren();for(const p of data.providers){const o=document.createElement('option');o.value=p.provider_id;o.textContent=`${p.model} · ${p.price_per_image_cny===0?'免费':p.price_per_image_cny===null?'价格待核实':'¥'+p.price_per_image_cny+'/张'}${p.ready?'':'（待配置）'}`;select.append(o)}select.value=data.default_provider_id;await providerInfo()}catch(e){$('imageProvider').textContent=e.message}
+}
+loadProviders();
 const saved=localStorage.getItem('xiuxianProject');if(saved)api('/api/projects/'+encodeURIComponent(saved)).then(show).catch(()=>localStorage.removeItem('xiuxianProject'));
 </script></html>
