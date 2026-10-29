@@ -10,7 +10,7 @@ from urllib.parse import quote, urlparse
 import httpx
 from fastapi import HTTPException
 from fastapi.responses import FileResponse
-from .image_assets import persist_image
+from .image_assets import persist_image, AssetDownloadError
 from .adapters import KeyframeAnimation
 from pydantic import BaseModel, ConfigDict, Field
 from .planner import money
@@ -227,9 +227,18 @@ def install_image_routes(app, data, get_project, save_project, project_lock):
                 return job
             try:
                 metadata = persist_image(job['output_url'], target)
-            except Exception:
-                # Keep the remote result: storage errors must never resubmit generation.
-                job['asset_error'] = '图片保存失败，请检查下载域名白名单、文件格式和大小；可重试保存，不会重新计费'
+            except Exception as error:
+                # Only trusted validation messages/status codes are shown; never provider bodies.
+                if isinstance(error, AssetDownloadError):
+                    reason = str(error)
+                elif isinstance(error, httpx.HTTPStatusError) and error.response.status_code in (403, 404, 410):
+                    reason = '供应商临时图片链接可能已过期或拒绝访问'
+                else:
+                    reason = '图片下载或校验失败，请稍后重试'
+                job['asset_error'] = '保存未成功：' + reason + '。重试保存不会重新提交图片生成。'
+                if not target.is_file():
+                    job.pop('asset_url', None)
+                    job.pop('asset_download_url', None)
                 save(job)
                 raise HTTPException(502, job['asset_error'])
             job.update(asset_url=f'/api/image-jobs/{jid}/asset',

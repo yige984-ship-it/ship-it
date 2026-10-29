@@ -62,9 +62,10 @@ async function loadImages(){
  for(const j of result.jobs){const box=document.createElement('article');const text=document.createElement('p');text.textContent=`镜头${j.shot_id} · 方案版本${j.revision} · ${j.status} · 预留¥${j.reserved_cny} · 实际费用待账单核对${j.error?' · '+j.error:''}`;box.append(text);
  if(j.status==='processing'){const b=document.createElement('button');b.textContent='刷新生成状态';b.onclick=async()=>{b.disabled=true;try{await api('/api/image-jobs/'+j.id+'/refresh',{});await loadImages()}catch(e){say(e.message);b.disabled=false}};box.append(b)}
  if(j.status==='completed_real_image'){
- const b=document.createElement('button');b.textContent=j.asset_url?'图片已保存（可重新检查）':'保存图片到项目';
- b.onclick=async()=>{b.disabled=true;try{await api('/api/image-jobs/'+j.id+'/persist',{});await loadImages();say('图片已保存到项目，后续使用本地素材。')}catch(e){say(e.message);b.disabled=false}};box.append(b);
- if(j.asset_error){const warning=document.createElement('p');warning.textContent=j.asset_error;box.append(warning)}
+ const b=document.createElement('button');b.textContent=j.asset_url?'重新检查已保存图片':'保存图片到项目';
+ const status=document.createElement('p');status.setAttribute('role','status');status.setAttribute('aria-live','polite');
+ status.textContent=j.asset_error||(j.asset_url?'保存成功：图片已在项目中，可下载或制作5秒关键帧动画。免费服务器休眠会丢失素材，请同时保存到手机。':'尚未保存到项目。');
+ b.onclick=async()=>{b.disabled=true;status.textContent='正在下载并保存图片，请稍候，不要重复点击…';try{await api('/api/image-jobs/'+j.id+'/persist',{});await loadImages();say('图片已保存到项目，后续使用本地素材。')}catch(e){status.textContent=e.message;say(e.message);b.disabled=false}};box.append(b,status);
 }
 if(j.asset_url){const a=document.createElement('a');a.href=j.asset_download_url;a.textContent='下载已保存图片';box.append(a);
  const b=document.createElement('button');b.textContent='制作5秒关键帧动画（无模型费用）';b.onclick=async()=>{b.disabled=true;try{await api('/api/image-jobs/'+j.id+'/animate',{});await loadImages();say('5秒本地关键帧动画已完成，非AI图生视频，音轨为静音。')}catch(e){say(e.message);b.disabled=false}};box.append(b)}

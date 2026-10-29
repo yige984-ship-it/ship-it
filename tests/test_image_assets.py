@@ -106,3 +106,12 @@ def test_redirect_not_followed(tmp_path,monkeypatch):
         image_assets.persist_image('https://cdn.example.com/a',tmp_path/'image.png')
     assert len(calls)==1
     assert not (tmp_path/'image.png').exists()
+
+def test_default_silicon_cdn_is_exact_and_overridable(monkeypatch):
+    monkeypatch.delenv('IMAGE_DOWNLOAD_HOSTS',raising=False)
+    monkeypatch.setattr(socket,'getaddrinfo',lambda *a,**kw:[(socket.AF_INET,socket.SOCK_STREAM,6,'',('93.184.216.34',443))])
+    assert image_assets.checked_url('https://s3.siliconflow.cn/temporary/image.png')
+    for url in ('https://evil.s3.siliconflow.cn/a','https://s3.siliconflow.cn.evil.example/a','http://s3.siliconflow.cn/a'):
+        with pytest.raises(ValueError):image_assets.checked_url(url)
+    monkeypatch.setenv('IMAGE_DOWNLOAD_HOSTS','')
+    with pytest.raises(ValueError):image_assets.checked_url('https://s3.siliconflow.cn/a')
