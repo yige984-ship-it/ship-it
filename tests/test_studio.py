@@ -73,3 +73,56 @@ def test_ffmpeg_end_to_end(client, tmp_path):
     assert abs(float(probe['format']['duration'])-120) < 0.2
     assert {s['codec_type'] for s in probe['streams']} == {'video','audio'}
     assert all(s['voice_task'] == 'completed_mock_silence' for s in r['shots'])
+    e = editable(r)
+    e['style'] = 'ink'
+    edited = client.put(f"/api/projects/{p['id']}/plan", json=e).json()
+    assert edited['status'] == 'planned'
+    assert 'download_url' not in edited and 'preview_url' not in edited
+    assert edited['shots'][0]['prompt'].startswith('中国水墨')
+    assert client.get(r['preview_url']).status_code == 409
+    assert client.get(r['download_url']).status_code == 409
+
+
+def editable(p):
+    return dict(revision=p.get('revision', 1), style=p.get('style', 'xianxia'), budget_cny=p['budget_cny'],
+                characters=[{k:c[k] for k in ('id','name','appearance','consistency')} for c in p['characters']],
+                shots=[{k:s[k] for k in ('id','duration','strategy','narration','prompt')} for s in p['shots']])
+
+def test_edit_reprices_and_conflicts(client):
+    p = make(client, style='ink')
+    assert '中国水墨' in p['shots'][0]['prompt']
+    e = editable(p)
+    e['characters'][0]['name'] = '林玄'
+    e['shots'][0]['strategy'] = 'low_motion'
+    e['shots'][0]['prompt'] = '水墨山门中的林玄'
+    e['shots'][0]['duration'] = 15
+    e['shots'][1]['duration'] = 5
+    e['budget_cny'] = 0.01
+    url = f"/api/projects/{p['id']}/plan"
+    r = client.put(url, json=e)
+    assert r.status_code == 200
+    updated = r.json()
+    assert updated['estimated_cny'] > p['estimated_cny']
+    assert updated['characters'][0]['name'] == '林玄'
+    assert not updated['budget_ok']
+    assert updated['revision'] == 2
+    assert client.put(url, json=e).status_code == 409
+    assert client.post(f"/api/projects/{p['id']}/render", json={}).status_code == 409
+    assert client.get(f"/api/projects/{p['id']}").json() == updated
+
+def test_reject_invalid_plan(client):
+    p = make(client)
+    url = f"/api/projects/{p['id']}/plan"
+    e = editable(p)
+    e['shots'][0]['duration'] = 11
+    assert client.put(url, json=e).status_code == 422
+    e = editable(p)
+    e['shots'][0]['id'] = 2
+    assert client.put(url, json=e).status_code == 422
+    e = editable(p)
+    e['shots'][0]['estimated_cny'] = 0
+    assert client.put(url, json=e).status_code == 422
+    e = editable(p)
+    e['style'] = 'unknown'
+    assert client.put(url, json=e).status_code == 422
+    assert client.get(f"/api/projects/{p['id']}").json() == p

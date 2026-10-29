@@ -29,3 +29,18 @@ def plan(text, prices, budget):
                 shots=shots, pricing=prices, subtotal_cny=subtotal, estimated_cny=total,
                 budget_cny=budget, budget_ok=total <= budget, actual_api_cost_cny=0,
                 budget_message='估算在预算内；不是供应商报价或成本保证' if total <= budget else '预算不足：请减少动态镜头或调整配置，禁止提交生成')
+
+STYLES = {'xianxia': '仙侠国漫，青金色调', 'ink': '中国水墨，留白意境', 'gufeng': '古风工笔，细腻设色'}
+
+def recalculate(project):
+    prices = project['pricing']
+    for shot in project['shots']:
+        visual = money(shot['duration'] * prices['video_per_second'] if shot['strategy'] == 'low_motion' else prices['keyframe_per_image'])
+        voice = money(len(shot['narration']) / 1000 * prices['voice_per_1000_chars'])
+        shot['estimated_cny'] = money(visual + voice)
+    project['duration'] = sum(s['duration'] for s in project['shots'])
+    project['subtotal_cny'] = money(sum(s['estimated_cny'] for s in project['shots']))
+    project['estimated_cny'] = money(project['subtotal_cny'] * (1 + prices['reserve_ratio']))
+    project['budget_ok'] = project['estimated_cny'] <= project['budget_cny']
+    project['budget_message'] = ('估算在预算内；不是供应商报价或成本保证' if project['budget_ok'] else '预算不足：请减少动态镜头或调整配置，禁止提交生成')
+    return project

@@ -10,17 +10,54 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
-from .planner import plan
+from pydantic import BaseModel, Field, ConfigDict, model_validator
+from typing import Literal
+from .planner import plan, recalculate, STYLES
 from .adapters import MockImage, MockVideo, MockVoice, run
 
 load_dotenv()
 ROOT = Path(__file__).resolve().parent.parent
 log = logging.getLogger('xiuxian')
 
+Style = Literal['xianxia', 'ink', 'gufeng']
+
 class ProjectInput(BaseModel):
+    style: Style = 'xianxia'
     text: str = Field(min_length=1, max_length=20000)
     budget_cny: float = Field(default=150, gt=0, le=150, allow_inf_nan=False)
+
+class CharacterEdit(BaseModel):
+    model_config = ConfigDict(extra='forbid', str_strip_whitespace=True)
+    id: str = Field(min_length=1, max_length=40)
+    name: str = Field(min_length=1, max_length=80)
+    appearance: str = Field(min_length=1, max_length=1000)
+    consistency: str = Field(min_length=1, max_length=1000)
+
+class ShotEdit(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    id: int = Field(ge=1, le=12)
+    duration: int = Field(ge=1, le=30, strict=True)
+    strategy: Literal['keyframe', 'low_motion']
+    narration: str = Field(max_length=20000)
+    prompt: str = Field(min_length=1, max_length=4000)
+
+class PlanEdit(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    revision: int = Field(ge=1)
+    style: Style
+    budget_cny: float = Field(gt=0, le=150, allow_inf_nan=False)
+    characters: list[CharacterEdit] = Field(min_length=1, max_length=10)
+    shots: list[ShotEdit] = Field(min_length=12, max_length=12)
+
+    @model_validator(mode='after')
+    def check_plan(self):
+        if sorted(s.id for s in self.shots) != list(range(1, 13)):
+            raise ValueError('镜头编号必须为1至12且不能重复')
+        if sum(s.duration for s in self.shots) != 120:
+            raise ValueError('每集镜头总时长必须为120秒')
+        if len({c.id for c in self.characters}) != len(self.characters):
+            raise ValueError('角色编号不能重复')
+        return self
 
 class RenderInput(BaseModel):
     mode: str = 'mock'
@@ -83,12 +120,40 @@ def create_app(data_dir=None):
                 if not isinstance(prices.get(key), (int, float)) or not 0 <= prices[key] < 100000:
                     raise HTTPException(503, '价格配置无效')
             p = plan(payload.text, prices, min(payload.budget_cny, float(os.getenv('BUDGET_CAP_CNY', '150'))))
-            p.update(id=uuid.uuid4().hex, status='planned', mode='mock', attempts=0, error=None)
+            p.update(id=uuid.uuid4().hex, status='planned', mode='mock', attempts=0, error=None, revision=1, style=payload.style)
+            for shot in p['shots']:
+                shot['prompt'] = STYLES[payload.style] + '，' + shot['prompt']
             save(p)
         return p
     @app.get('/api/projects/{pid}')
     def project(pid: str):
         return get(pid)
+    @app.put('/api/projects/{pid}/plan')
+    def edit_plan(pid: str, payload: PlanEdit):
+        with lock:
+            p = get(pid)
+            if p['status'] == 'rendering_mock':
+                raise HTTPException(409, '生成中不能修改方案')
+            if payload.revision != p.get('revision', 1):
+                raise HTTPException(409, '方案已更新，请刷新后再编辑')
+            previous = {shot['id']: shot for shot in p['shots']}
+            p['shots'] = [dict(previous[shot.id], **shot.model_dump()) for shot in sorted(payload.shots, key=lambda s: s.id)]
+            for shot in p['shots']:
+                if payload.style != p.get('style', 'xianxia'):
+                    for style_prefix in STYLES.values():
+                        if shot['prompt'].startswith(style_prefix + '，'):
+                            shot['prompt'] = shot['prompt'][len(style_prefix) + 1:]
+                            break
+                    shot['prompt'] = STYLES[payload.style] + '，' + shot['prompt']
+                shot.update(image_task='planned_mock', video_task='planned_mock', voice_task='planned_mock')
+            p['characters'] = [dict(c.model_dump(), source='人工编辑') for c in payload.characters]
+            p.update(style=payload.style, budget_cny=min(payload.budget_cny, float(os.getenv('BUDGET_CAP_CNY', '150'))),
+                     revision=p.get('revision', 1)+1, status='planned', error=None)
+            p.pop('download_url', None)
+            p.pop('preview_url', None)
+            recalculate(p)
+            save(p)
+            return p
     @app.post('/api/projects/{pid}/render')
     def render(pid: str, payload: RenderInput):
         if payload.mode != 'mock' or os.getenv('PROVIDER_MODE', 'mock') != 'mock':
@@ -102,6 +167,8 @@ def create_app(data_dir=None):
             if p['attempts'] >= int(os.getenv('MAX_RENDER_ATTEMPTS', '3')):
                 raise HTTPException(429, '合成次数已达到额度')
             p.update(status='rendering_mock', attempts=p['attempts']+1, error=None)
+            p.pop('preview_url', None)
+            p.pop('download_url', None)
             save(p)
         # Synchronous MVP: separate worker/queue is a phase-two replacement point.
         folder = data / p['id']
