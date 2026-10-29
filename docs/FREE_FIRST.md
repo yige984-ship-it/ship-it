@@ -58,3 +58,12 @@
 - https://docs.siliconflow.com/cn/api-reference/models/get-model-list
 - https://help.aliyun.com/zh/model-studio/model-pricing
 - https://help.aliyun.com/zh/model-studio/text-to-image-v2-api-reference
+
+## 0元预算与输入校验修复
+
+- 创建/编辑方案允许budget_cny=0，负数仍拒绝。
+- 0元模式仍需实际输入正文；页面增加“填入试用故事”，灰色placeholder不算正文。
+- 免费单图不受整集视频规划估价拦截；单张费用大于0时仍检查完整预算并拒绝超限。
+- 免费任务仍检查账号密钥、当前模型列表和实时免费标价，没有自动收费回退。
+- 模拟整集渲染仍沿用原有预算门槛，0元模式的可用入口为逐镜免费图片，不承诺全流程免费。
+- 前端将字段验证错误转为中文，不显示完整原始验证JSON。

@@ -26,7 +26,7 @@ Style = Literal['xianxia', 'ink', 'gufeng']
 class ProjectInput(BaseModel):
     style: Style = 'xianxia'
     text: str = Field(min_length=1, max_length=20000)
-    budget_cny: float = Field(default=150, gt=0, le=150, allow_inf_nan=False)
+    budget_cny: float = Field(default=150, ge=0, le=150, allow_inf_nan=False)
 
 class CharacterEdit(BaseModel):
     model_config = ConfigDict(extra='forbid', str_strip_whitespace=True)
@@ -47,7 +47,7 @@ class PlanEdit(BaseModel):
     model_config = ConfigDict(extra='forbid')
     revision: int = Field(ge=1)
     style: Style
-    budget_cny: float = Field(gt=0, le=150, allow_inf_nan=False)
+    budget_cny: float = Field(ge=0, le=150, allow_inf_nan=False)
     characters: list[CharacterEdit] = Field(min_length=1, max_length=10)
     shots: list[ShotEdit] = Field(min_length=12, max_length=12)
 

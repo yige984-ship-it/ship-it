@@ -28,7 +28,7 @@ def plan(text, prices, budget):
                                  consistency='固定服饰、发型和面部；真实生成前需制作参考图', source='默认模板，非小说角色识别')],
                 shots=shots, pricing=prices, subtotal_cny=subtotal, estimated_cny=total,
                 budget_cny=budget, budget_ok=total <= budget, actual_api_cost_cny=0,
-                budget_message='估算在预算内；不是供应商报价或成本保证' if total <= budget else '预算不足：请减少动态镜头或调整配置，禁止提交生成')
+                budget_message=budget_notice(total, budget))
 
 STYLES = {'xianxia': '仙侠国漫，青金色调', 'ink': '中国水墨，留白意境', 'gufeng': '古风工笔，细腻设色'}
 
@@ -42,5 +42,11 @@ def recalculate(project):
     project['subtotal_cny'] = money(sum(s['estimated_cny'] for s in project['shots']))
     project['estimated_cny'] = money(project['subtotal_cny'] * (1 + prices['reserve_ratio']))
     project['budget_ok'] = project['estimated_cny'] <= project['budget_cny']
-    project['budget_message'] = ('估算在预算内；不是供应商报价或成本保证' if project['budget_ok'] else '预算不足：请减少动态镜头或调整配置，禁止提交生成')
+    project['budget_message'] = budget_notice(project['estimated_cny'], project['budget_cny'])
     return project
+
+
+def budget_notice(total, budget):
+    if budget == 0:
+        return '0元模式：可尝试免费单图；整集方案估价仅供参考，收费图片任务禁止提交。'
+    return ('估算在预算内；不是供应商报价或成本保证' if total <= budget else '预算不足：请减少动态镜头或调整配置，禁止提交生成')

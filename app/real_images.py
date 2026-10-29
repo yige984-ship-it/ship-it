@@ -149,7 +149,7 @@ def install_image_routes(app, data, get_project, save_project, project_lock):
             committed = sum(j['reserved_cny'] for j in all_jobs(pid))
             # Conservative: retain all past reservations, even failures/expired quotes.
             cap = min(p['budget_cny'], float(os.getenv('BUDGET_CAP_CNY', '150')), 150)
-            if p['estimated_cny'] + committed + amount > cap:
+            if amount > 0 and p['estimated_cny'] + committed + amount > cap:
                 raise HTTPException(409, '预算不足：方案估算加历史图片预留及本次费用超过上限')
             shot = next(s for s in p['shots'] if s['id'] == payload.shot_id)
             characters = '\n'.join(f"{c['name']}：{c['appearance']}；{c['consistency']}" for c in p['characters'])
@@ -178,7 +178,7 @@ def install_image_routes(app, data, get_project, save_project, project_lock):
             if not payload.confirmed or money(payload.max_cost_cny) != job['reserved_cny']:
                 raise HTTPException(422, '需要确认当前单张费用')
             cap = min(p['budget_cny'], float(os.getenv('BUDGET_CAP_CNY', '150')), 150)
-            if p['estimated_cny'] + sum(j['reserved_cny'] for j in all_jobs(p['id'])) > cap:
+            if job['reserved_cny'] > 0 and p['estimated_cny'] + sum(j['reserved_cny'] for j in all_jobs(p['id'])) > cap:
                 raise HTTPException(409, '预算上限已改变，禁止提交')
             if len(job['prompt']) > cfg.get('prompt_limit', 12000):
                 raise HTTPException(422, '提示词与角色设定合计超过当前模型限制，请精简方案后重新报价')

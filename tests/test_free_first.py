@@ -109,3 +109,19 @@ def test_ephemeral_hosting_blocks_paid(client,free_setup,monkeypatch):
     p=make(client)
     assert free_quote(client,p,'wanx-budget').status_code==503
     assert free_quote(client,p).status_code==201
+
+def test_zero_budget_free_quote_and_submit(client,free_setup,monkeypatch):
+    monkeypatch.setattr(SiliconImages,'submit',lambda *a:{'outputs':['https://cdn.example.com/free.png']})
+    p=make(client,budget_cny=0)
+    assert p['budget_cny']==0 and '0元模式' in p['budget_message']
+    q=free_quote(client,p).json()
+    assert q['reserved_cny']==0
+    result=client.post(f"/api/image-jobs/{q['id']}/submit",json={'confirmed':True,'max_cost_cny':0})
+    assert result.json()['status']=='completed_real_image'
+    monkeypatch.setenv('ENABLE_PAID_IMAGES','true')
+    monkeypatch.setenv('DASHSCOPE_API_KEY','test')
+    assert free_quote(client,p,'wanx-budget').status_code==409
+
+def test_negative_budget_and_empty_story_still_rejected(client,free_setup):
+    for payload in ({'text':'故事','budget_cny':-1},{'text':'','budget_cny':0},{'text':'   ','budget_cny':0}):
+        assert client.post('/api/projects',json=payload).status_code==422
