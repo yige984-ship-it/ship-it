@@ -9,6 +9,9 @@ from pathlib import Path
 from urllib.parse import quote, urlparse
 import httpx
 from fastapi import HTTPException
+from fastapi.responses import FileResponse
+from .image_assets import persist_image
+from .adapters import KeyframeAnimation
 from pydantic import BaseModel, ConfigDict, Field
 from .planner import money
 
@@ -164,6 +167,76 @@ def install_image_routes(app, data, get_project, save_project, project_lock):
     @app.get('/api/image-jobs/{jid}')
     def image_job(jid: str):
         return get(jid)
+
+    def asset_path(job):
+        return data / 'image-assets' / job['id'] / 'image.png'
+
+    @app.post('/api/image-jobs/{jid}/persist')
+    def persist(jid: str):
+        with project_lock:
+            job = get(jid)
+            if job['status'] != 'completed_real_image':
+                raise HTTPException(409, '真实图片尚未生成完成')
+            target = asset_path(job)
+            if job.get('asset_url') and target.is_file():
+                return job
+            try:
+                metadata = persist_image(job['output_url'], target)
+            except Exception:
+                # Keep the remote result: storage errors must never resubmit generation.
+                job['asset_error'] = '图片保存失败，请检查下载域名白名单、文件格式和大小；可重试保存，不会重新计费'
+                save(job)
+                raise HTTPException(502, job['asset_error'])
+            job.update(asset_url=f'/api/image-jobs/{jid}/asset',
+                       asset_download_url=f'/api/image-jobs/{jid}/asset/download',
+                       asset_metadata=metadata, asset_error=None)
+            save(job)
+            return job
+
+    @app.get('/api/image-jobs/{jid}/asset')
+    def asset(jid: str):
+        job = get(jid)
+        path = asset_path(job)
+        if not job.get('asset_url') or not path.is_file():
+            raise HTTPException(404, '本地图片素材不存在，请先保存')
+        return FileResponse(path, media_type='image/png')
+
+    @app.get('/api/image-jobs/{jid}/asset/download')
+    def asset_download(jid: str):
+        job = get(jid)
+        path = asset_path(job)
+        if not job.get('asset_url') or not path.is_file():
+            raise HTTPException(404, '本地图片素材不存在，请先保存')
+        return FileResponse(path, media_type='image/png', filename=f'xiuxian-shot-{job["shot_id"]}.png')
+
+    @app.post('/api/image-jobs/{jid}/animate')
+    def animate(jid: str):
+        with project_lock:
+            job = get(jid)
+            image = asset_path(job)
+            if not job.get('asset_url') or not image.is_file():
+                raise HTTPException(409, '请先将真实图片保存为本地素材')
+            output = image.parent / 'keyframe-preview.mp4'
+            if not output.is_file():
+                temporary = image.parent / 'keyframe-preview.part.mp4'
+                try:
+                    KeyframeAnimation().generate(image, temporary)
+                    temporary.replace(output)
+                except Exception:
+                    temporary.unlink(missing_ok=True)
+                    raise HTTPException(502, '关键帧动画合成失败，请检查FFmpeg')
+            job.update(keyframe_preview_url=f'/api/image-jobs/{jid}/animation',
+                       animation_type='local_keyframe_not_ai_video', animation_duration=5)
+            save(job)
+            return job
+
+    @app.get('/api/image-jobs/{jid}/animation')
+    def animation(jid: str):
+        job = get(jid)
+        output = asset_path(job).parent / 'keyframe-preview.mp4'
+        if not job.get('keyframe_preview_url') or not output.is_file():
+            raise HTTPException(404, '动画预览尚未合成')
+        return FileResponse(output, media_type='video/mp4', content_disposition_type='inline')
 
     @app.post('/api/image-jobs/{jid}/refresh')
     def refresh(jid: str):

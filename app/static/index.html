@@ -54,7 +54,15 @@ async function loadImages(){
  try{const result=await api('/api/projects/'+project.id+'/images');const root=$('imageJobs');root.replaceChildren();
  for(const j of result.jobs){const box=document.createElement('article');const text=document.createElement('p');text.textContent=`镜头${j.shot_id} · 方案版本${j.revision} · ${j.status} · 预留¥${j.reserved_cny} · 实际费用待账单核对${j.error?' · '+j.error:''}`;box.append(text);
  if(j.status==='processing'){const b=document.createElement('button');b.textContent='刷新生成状态';b.onclick=async()=>{b.disabled=true;try{await api('/api/image-jobs/'+j.id+'/refresh',{});await loadImages()}catch(e){say(e.message);b.disabled=false}};box.append(b)}
- if(j.output_url){const img=document.createElement('img');img.src=j.output_url;img.alt='真实生成的镜头'+j.shot_id+'图片';img.loading='lazy';img.referrerPolicy='no-referrer';img.style.width='100%';box.append(img);const a=document.createElement('a');a.href=j.output_url;a.target='_blank';a.rel='noopener noreferrer';a.textContent='打开原图（供应商临时链接）';box.append(a)}root.append(box)}
+ if(j.status==='completed_real_image'){
+ const b=document.createElement('button');b.textContent=j.asset_url?'图片已保存（可重新检查）':'保存图片到项目';
+ b.onclick=async()=>{b.disabled=true;try{await api('/api/image-jobs/'+j.id+'/persist',{});await loadImages();say('图片已保存到项目，后续使用本地素材。')}catch(e){say(e.message);b.disabled=false}};box.append(b);
+ if(j.asset_error){const warning=document.createElement('p');warning.textContent=j.asset_error;box.append(warning)}
+}
+if(j.asset_url){const a=document.createElement('a');a.href=j.asset_download_url;a.textContent='下载已保存图片';box.append(a);
+ const b=document.createElement('button');b.textContent='制作5秒关键帧动画（无模型费用）';b.onclick=async()=>{b.disabled=true;try{await api('/api/image-jobs/'+j.id+'/animate',{});await loadImages();say('5秒本地关键帧动画已完成，非AI图生视频，音轨为静音。')}catch(e){say(e.message);b.disabled=false}};box.append(b)}
+if(j.keyframe_preview_url){const note=document.createElement('p');note.textContent='5秒本地关键帧动画 · 非AI图生视频 · 静音';box.append(note);const v=document.createElement('video');v.controls=true;v.playsInline=true;v.preload='metadata';v.src=j.keyframe_preview_url;box.append(v)}
+if(j.output_url){const img=document.createElement('img');img.src=j.asset_url||j.output_url;img.alt='真实生成的镜头'+j.shot_id+'图片';img.loading='lazy';img.referrerPolicy='no-referrer';img.style.width='100%';box.append(img);const a=document.createElement('a');a.href=j.output_url;a.target='_blank';a.rel='noopener noreferrer';a.textContent='打开原图（供应商临时链接）';box.append(a)}root.append(box)}
  if(!result.jobs.length)root.textContent='暂无真实图片任务。';
  }catch(e){say(e.message)}
 }
