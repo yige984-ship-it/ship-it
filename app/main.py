@@ -119,7 +119,7 @@ def create_app(data_dir=None):
                  '-c:v', 'copy', '-c:a', 'aac', '-t', '120', '-movflags', '+faststart', str(folder / 'final.mp4')])
             for shot in p['shots']:
                 shot['voice_task'] = 'completed_mock_silence'
-            p.update(status='completed_mock', download_url=f"/api/projects/{pid}/download")
+            p.update(status='completed_mock', download_url=f"/api/projects/{pid}/download", preview_url=f"/api/projects/{pid}/preview")
         except Exception:
             log.exception('Mock composition failed project=%s', p['id'])
             p.update(status='failed', error='模拟合成失败，请检查服务器FFmpeg与日志')
@@ -131,6 +131,16 @@ def create_app(data_dir=None):
         if p['status'] != 'completed_mock':
             raise HTTPException(409, '尚无合成结果')
         return FileResponse(data / p['id'] / 'final.mp4', media_type='video/mp4', filename='xiuxian-SIMULATION.mp4')
+    @app.get('/api/projects/{pid}/preview')
+    def preview(pid: str):
+        p = get(pid)
+        if p['status'] != 'completed_mock':
+            raise HTTPException(409, '尚无合成结果')
+        path = data / p['id'] / 'final.mp4'
+        if not path.is_file():
+            raise HTTPException(404, '视频文件已丢失，请重新合成')
+        return FileResponse(path, media_type='video/mp4',
+                            content_disposition_type='inline')
     app.mount('/', StaticFiles(directory=ROOT / 'app/static', html=True), name='web')
     return app
 

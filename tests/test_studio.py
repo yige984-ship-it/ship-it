@@ -60,6 +60,11 @@ def test_ffmpeg_end_to_end(client, tmp_path):
     p = make(client)
     r = client.post(f"/api/projects/{p['id']}/render", json={}).json()
     assert r['status'] == 'completed_mock', r
+    preview = client.get(r['preview_url'], headers={'Range': 'bytes=0-1023'})
+    assert preview.status_code == 206
+    assert len(preview.content) == 1024
+    assert preview.headers['content-type'] == 'video/mp4'
+    assert client.get(r['preview_url']).content == client.get(r['download_url']).content
     response = client.get(r['download_url'])
     assert response.status_code == 200
     output = tmp_path / 'verify.mp4'
