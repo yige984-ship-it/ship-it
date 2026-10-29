@@ -101,6 +101,8 @@ def install_image_routes(app, data, get_project, save_project, project_lock):
         except (ValueError,OSError,TypeError):
             return {}, '图片服务配置文件无法读取'
         if not valid: return cfg, '请配置已核实的人民币单图估价、来源与日期及有效模型参数'
+        if price>0 and os.getenv('EPHEMERAL_STORAGE','false').lower()=='true':
+            return cfg, '临时磁盘部署仅允许免费试用，收费服务需要持久化存储'
         enabled='ENABLE_FREE_IMAGES' if price==0 else 'ENABLE_PAID_IMAGES'
         if os.getenv(enabled,'true' if price==0 else 'false').lower()!='true':
             return cfg, '免费图片开关未开启' if price==0 else '真实图片收费开关未开启'

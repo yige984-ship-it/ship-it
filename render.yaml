@@ -1,0 +1,27 @@
+services:
+  - type: web
+    name: xiuxian-ai-studio
+    runtime: docker
+    plan: free
+    healthCheckPath: /api/health
+    envVars:
+      - key: REQUIRE_AUTH
+        value: "true"
+      - key: COOKIE_SECURE
+        value: "true"
+      - key: STUDIO_ACCESS_PASSWORD
+        sync: false
+      - key: SILICONFLOW_API_KEY
+        sync: false
+      - key: ENABLE_FREE_IMAGES
+        value: "true"
+      - key: ENABLE_PAID_IMAGES
+        value: "false"
+      - key: MAX_IMAGE_JOBS
+        value: "30"
+      - key: MAX_PROJECTS
+        value: "30"
+      - key: EPHEMERAL_STORAGE
+        value: "true"
+      - key: DATA_DIR
+        value: /app/data

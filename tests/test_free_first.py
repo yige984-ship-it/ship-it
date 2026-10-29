@@ -99,3 +99,13 @@ def test_aliyun_contract(monkeypatch):
     monkeypatch.setattr('app.image_providers.httpx.Client',lambda **kw:actual(transport=httpx.MockTransport(handler),**kw))
     a=AliyunImages();assert a.submit('国风',{'model':'wanx2.0-t2i-turbo','size':'768*1344'})=='task1'
     assert a.poll('task1')['status']=='completed'
+
+def test_ephemeral_hosting_blocks_paid(client,free_setup,monkeypatch):
+    monkeypatch.setenv('ENABLE_PAID_IMAGES','true')
+    monkeypatch.setenv('DASHSCOPE_API_KEY','test')
+    monkeypatch.setenv('EPHEMERAL_STORAGE','true')
+    result=client.get('/api/image-provider?provider_id=wanx-budget').json()
+    assert not result['ready'] and '临时磁盘' in result['reason']
+    p=make(client)
+    assert free_quote(client,p,'wanx-budget').status_code==503
+    assert free_quote(client,p).status_code==201

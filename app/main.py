@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field, ConfigDict, model_validator
 from typing import Literal
 from .planner import plan, recalculate, STYLES
 from .real_images import install_image_routes
+from .auth import install_auth
 from .adapters import MockImage, MockVideo, MockVoice, run
 
 load_dotenv()
@@ -104,6 +105,7 @@ def create_app(data_dir=None):
                     return JSONResponse({'detail': '请求体超过大小限制'}, 413)
             request._body = bytes(body)
         return await call_next(request)
+    install_auth(app)
     @app.get('/api/health')
     def health():
         return {'status': 'ok', 'video_mode': 'mock', 'paid_video_calls_enabled': False,
