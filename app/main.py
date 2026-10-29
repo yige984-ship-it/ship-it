@@ -13,6 +13,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, ConfigDict, model_validator
 from typing import Literal
 from .planner import plan, recalculate, STYLES
+from .real_images import install_image_routes
 from .adapters import MockImage, MockVideo, MockVoice, run
 
 load_dotenv()
@@ -105,7 +106,9 @@ def create_app(data_dir=None):
         return await call_next(request)
     @app.get('/api/health')
     def health():
-        return {'status': 'ok', 'mode': 'mock', 'paid_calls_enabled': False}
+        return {'status': 'ok', 'video_mode': 'mock', 'paid_video_calls_enabled': False,
+                'paid_image_feature_enabled': os.getenv('ENABLE_PAID_IMAGES', 'false').lower() == 'true',
+                'image_provider_status_url': '/api/image-provider'}
     @app.post('/api/projects', status_code=201)
     def create(payload: ProjectInput):
         if not payload.text.strip() or len(payload.text) > int(os.getenv('MAX_TEXT_CHARS', '20000')):
@@ -208,6 +211,7 @@ def create_app(data_dir=None):
             raise HTTPException(404, '视频文件已丢失，请重新合成')
         return FileResponse(path, media_type='video/mp4',
                             content_disposition_type='inline')
+    install_image_routes(app, data, get, save, lock)
     app.mount('/', StaticFiles(directory=ROOT / 'app/static', html=True), name='web')
     return app
 

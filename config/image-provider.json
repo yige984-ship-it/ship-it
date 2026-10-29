@@ -1,0 +1,11 @@
+{
+  "provider": "atlas",
+  "model": "bytedance/seedream-v5.0-lite",
+  "size": "1600*2848",
+  "output_format": "png",
+  "price_per_image_cny": null,
+  "price_source": "",
+  "price_verified_at": "",
+  "schema_verified_at": "2026-10-29",
+  "schema_url": "https://static.atlascloud.ai/model/schema/bytedance-seedream-v5.0-lite.json"
+}
