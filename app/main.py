@@ -15,6 +15,7 @@ from typing import Literal
 from .planner import plan, recalculate, STYLES
 from .real_images import install_image_routes
 from .auth import install_auth
+from .episodes import recover_episodes
 from .adapters import MockImage, MockVideo, MockVoice, run
 
 load_dotenv()
@@ -85,6 +86,7 @@ def create_app(data_dir=None):
         return json.loads(row[0])
     @asynccontextmanager
     async def lifespan(app):
+        recover_episodes(data)
         with conn() as c:
             rows = c.execute('SELECT body FROM projects').fetchall()
         for row in rows:

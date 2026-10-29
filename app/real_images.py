@@ -12,6 +12,7 @@ from fastapi import HTTPException
 from fastapi.responses import FileResponse
 from .image_assets import persist_image, AssetDownloadError
 from .adapters import KeyframeAnimation
+from .episodes import install_episode_routes
 from pydantic import BaseModel, ConfigDict, Field
 from .planner import money
 from .image_providers import SiliconImages, AliyunImages
@@ -318,3 +319,5 @@ def install_image_routes(app, data, get_project, save_project, project_lock):
                 job['error'] = '状态查询失败，未重新提交收费请求；可稍后刷新'
             save(job)
         return job
+
+    install_episode_routes(app, data, get_project, get, asset_path, project_lock)
