@@ -8,7 +8,7 @@ import warnings
 from pathlib import Path
 from urllib.parse import urlsplit
 import httpx
-from PIL import Image
+from PIL import Image, UnidentifiedImageError
 
 # Exact CDN observed in the user's successfully generated SiliconFlow image URL.
 # An explicit (even empty) administrator setting still overrides this default.
@@ -42,28 +42,31 @@ def persist_image(url: str, destination: Path):
     with httpx.Client(timeout=30, follow_redirects=False) as client:
         with client.stream('GET', url) as response:
             response.raise_for_status()
-            if response.headers.get('content-type', '').split(';')[0].lower() not in ('image/png', 'image/jpeg', 'image/webp'):
-                raise AssetDownloadError('响应不是支持的图片格式')
+            # Object storage often serves PNGs as application/octet-stream (or no MIME).
+            # Decode the bounded bytes below instead of trusting/rejecting a header label.
             for chunk in response.iter_bytes():
                 if time.monotonic() > deadline:
                     raise TimeoutError('图片下载超过总时限')
                 content.extend(chunk)
                 if len(content) > MAX_BYTES:
                     raise AssetDownloadError('图片超过20MB限制')
-    with warnings.catch_warnings():
-        warnings.simplefilter('error', Image.DecompressionBombWarning)
-        with Image.open(io.BytesIO(content)) as original:
-            if original.format not in ('PNG', 'JPEG', 'WEBP') or original.width * original.height > MAX_PIXELS:
-                raise AssetDownloadError('图片格式或像素数超限')
-            original.load()
-            normalized = original.convert('RGB')
-            # Strip remote metadata and normalize to a single PNG frame.
-            output = io.BytesIO()
-            normalized.save(output, format='PNG')
-            if output.tell() > MAX_BYTES:
-                raise AssetDownloadError('标准化后图片超过20MB限制')
-            metadata = {'width': normalized.width, 'height': normalized.height,
-                        'bytes': output.tell(), 'format': 'PNG'}
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter('error', Image.DecompressionBombWarning)
+            with Image.open(io.BytesIO(content), formats=('PNG', 'JPEG', 'WEBP')) as original:
+                if original.format not in ('PNG', 'JPEG', 'WEBP') or original.width * original.height > MAX_PIXELS:
+                    raise AssetDownloadError('图片格式或像素数超限')
+                original.load()
+                normalized = original.convert('RGB')
+                # Strip remote metadata and normalize to a single PNG frame.
+                output = io.BytesIO()
+                normalized.save(output, format='PNG')
+                if output.tell() > MAX_BYTES:
+                    raise AssetDownloadError('标准化后图片超过20MB限制')
+                metadata = {'width': normalized.width, 'height': normalized.height,
+                            'bytes': output.tell(), 'format': 'PNG'}
+    except (UnidentifiedImageError, OSError, Image.DecompressionBombError, Image.DecompressionBombWarning):
+        raise AssetDownloadError('下载内容不是有效的PNG/JPEG/WebP图片，或图片已损坏、像素过大；临时链接可能已过期')
     destination.parent.mkdir(parents=True, exist_ok=True)
     temporary = destination.with_suffix('.part')
     try:

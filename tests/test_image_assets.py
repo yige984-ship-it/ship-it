@@ -17,15 +17,16 @@ def image_bytes():
     return b.getvalue()
 
 @pytest.fixture
-def download_transport(monkeypatch,image_bytes):
+def download_transport(monkeypatch,image_bytes,request):
     monkeypatch.setenv('IMAGE_DOWNLOAD_HOSTS','cdn.example.com')
     monkeypatch.setattr(socket,'getaddrinfo',lambda *a,**kw:[(socket.AF_INET,socket.SOCK_STREAM,6,'',('93.184.216.34',443))])
     actual=httpx.Client
     calls=[]
+    content_type=getattr(request,'param','image/png')
     def handler(request):
         calls.append(request)
         assert 'authorization' not in request.headers
-        return httpx.Response(200,headers={'content-type':'image/png'},content=image_bytes)
+        return httpx.Response(200,headers={} if content_type is None else {'content-type':content_type},content=image_bytes)
     monkeypatch.setattr(image_assets.httpx,'Client',lambda **kw:actual(transport=httpx.MockTransport(handler),**kw))
     return calls
 
@@ -53,6 +54,7 @@ def test_reject_non_image_and_oversize(tmp_path,monkeypatch,image_bytes):
         with pytest.raises(Exception): image_assets.persist_image('https://cdn.example.com/a',tmp_path/'image.png')
         assert not (tmp_path/'image.png').exists()
 
+@pytest.mark.parametrize('download_transport',['image/png','application/octet-stream'],indirect=True)
 def test_saved_image_and_animation(client,configured,monkeypatch,download_transport,tmp_path):
     monkeypatch.setattr(AtlasImages,'submit',lambda *a:'id1')
     monkeypatch.setattr(AtlasImages,'poll',lambda *a:{'status':'completed','outputs':['https://cdn.example.com/image.png']})
@@ -115,3 +117,23 @@ def test_default_silicon_cdn_is_exact_and_overridable(monkeypatch):
         with pytest.raises(ValueError):image_assets.checked_url(url)
     monkeypatch.setenv('IMAGE_DOWNLOAD_HOSTS','')
     with pytest.raises(ValueError):image_assets.checked_url('https://s3.siliconflow.cn/a')
+
+
+@pytest.mark.parametrize('download_transport',['application/octet-stream','binary/octet-stream',None,'text/plain'],indirect=True)
+def test_image_bytes_accepted_despite_cdn_mime(tmp_path,download_transport):
+    path=tmp_path/'saved.png'
+    metadata=image_assets.persist_image('https://cdn.example.com/image.png',path)
+    assert metadata['width']==360 and metadata['height']==640
+    with Image.open(path) as decoded:
+        assert decoded.format=='PNG'
+        decoded.load()
+
+@pytest.mark.parametrize('content_type',['application/octet-stream','image/png',None])
+def test_invalid_bytes_rejected_regardless_of_mime(tmp_path,monkeypatch,content_type):
+    monkeypatch.setattr(image_assets,'checked_url',lambda url:url)
+    actual=httpx.Client
+    headers={} if content_type is None else {'content-type':content_type}
+    monkeypatch.setattr(image_assets.httpx,'Client',lambda **kw:actual(transport=httpx.MockTransport(lambda req:httpx.Response(200,headers=headers,content=b'<html>expired or invalid content</html>')),**kw))
+    with pytest.raises(image_assets.AssetDownloadError,match='不是有效'):
+        image_assets.persist_image('https://cdn.example.com/a',tmp_path/'image.png')
+    assert not (tmp_path/'image.png').exists()
