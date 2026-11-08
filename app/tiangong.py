@@ -58,6 +58,11 @@ def create_pilot_manifest(characters: list[CharacterBible], *, budget_cny: str =
     }
 
 def validate_manifest(manifest: dict[str, Any], *, final_export: bool = False) -> None:
+    budget = Decimal(str(manifest["budget_cny"]))
+    if not budget.is_finite() or not 0 <= budget <= 140:
+        raise ValueError("pilot budget must be between 0 and 140 CNY")
+    for c in manifest["characters"]:
+        CharacterBible(**c).validate()
     shots = manifest["shots"]
     if len(shots) != PILOT_SHOTS or [s["id"] for s in shots] != list(range(1, PILOT_SHOTS + 1)):
         raise ValueError("pilot requires exactly 18 sequential shots")

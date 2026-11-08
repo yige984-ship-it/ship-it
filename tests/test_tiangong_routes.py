@@ -29,3 +29,34 @@ def test_pilot_assets_roundtrip(tmp_path):
     assert response.status_code == 200, response.text
     assert response.json()["characters"][0]["version"] == 2
     assert client.get("/api/tiangong/pilot").json()["characters"][0]["face"] == "修订脸部参考"
+
+def test_asset_restart_and_character_invalidation(tmp_path):
+    import base64
+    client = TestClient(create_app(tmp_path))
+    character = dict(character_id='lead', name='主角', face='脸', hair='发', costume='衣',
+                     left_hand_ring='戒', waist_token='牌', shoes='鞋')
+    assert client.get('/tiangong').status_code == 200
+    assert client.post('/api/tiangong/pilot', json=character).status_code == 201
+    invalid = dict(character, face='   ')
+    assert client.put('/api/tiangong/pilot/characters/lead', json=invalid).status_code == 422
+    assert client.post('/api/tiangong/pilot/assets', json={'name':'bad','content_base64':'!!!'}).status_code == 422
+    content = b'reference fixture'
+    response = client.post('/api/tiangong/pilot/assets', json={
+        'name':'reference.png', 'content_base64':base64.b64encode(content).decode()})
+    assert response.status_code == 201
+    asset = response.json()
+    character['reference_asset_ids'] = [asset['id']]
+    assert client.put('/api/tiangong/pilot/characters/lead', json=character).status_code == 200
+    shot = client.put('/api/tiangong/pilot/shots/1', json={'prompt':'远景','character_ids':['lead']}).json()['shots'][0]
+    assert shot['reference_asset_ids'] == [asset['id']]
+    assert shot['character_versions'] == {'lead':2}
+    restarted = TestClient(create_app(tmp_path))
+    assert restarted.get('/api/tiangong/pilot/assets/'+asset['id']).content == content
+    assert restarted.get('/api/tiangong/pilot').json()['shots'][0] == shot
+    character['face'] = '新脸'
+    result = restarted.put('/api/tiangong/pilot/characters/lead', json=character).json()
+    assert result['shots'][0]['character_versions'] == {}
+    assert result['shots'][0]['approved'] is False
+    character['reference_asset_ids'] = ['missing']
+    assert restarted.put('/api/tiangong/pilot/characters/lead', json=character).status_code == 422
+    assert restarted.get('/api/tiangong/pilot/assets/missing').status_code == 404
