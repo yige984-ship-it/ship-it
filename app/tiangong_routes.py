@@ -1,6 +1,8 @@
 """Persistent Tiangong pilot asset API. No video generation or paid calls."""
 from io import BytesIO
 from PIL import Image, UnidentifiedImageError
+import tempfile
+import zipfile
 import os
 import base64
 import hashlib
@@ -10,7 +12,7 @@ import sqlite3
 import threading
 from pathlib import Path
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field, ConfigDict
 from .tiangong import CharacterBible, create_pilot_manifest, validate_manifest
 
@@ -84,7 +86,7 @@ def install_tiangong_routes(app, data_dir):
                     m["characters"][i] = updated
                     for shot in m["shots"]:
                         if character_id in shot["character_ids"]:
-                            shot.update(status="draft", approved=False, video_asset_id=None, provider_job_id=None, character_versions={})
+                            shot.update(status="draft", approved=False, video_asset_id=None, provider_job_id=None, character_versions={}, reference_asset_ids=[])
                     return save(m)
             raise HTTPException(404, "角色不存在")
     @router.put("/pilot/shots/{shot_id}")
@@ -102,6 +104,72 @@ def install_tiangong_routes(app, data_dir):
                      status="draft", approved=False, video_asset_id=None, provider_job_id=None, character_versions={})
             s["character_versions"] = {c["character_id"]: c["version"] for c in m["characters"] if c["character_id"] in payload.character_ids}
             return save(m)
+    def checked_assets(m):
+        issues = []
+        paths = []
+        for asset in m.get("assets", []):
+            aid = asset["id"]
+            if len(aid) != 32 or any(c not in "0123456789abcdef" for c in aid):
+                issues.append({"asset_id": aid, "reason": "invalid_id"})
+                continue
+            path = Path(data_dir) / "tiangong_assets" / aid
+            if not path.is_file():
+                issues.append({"asset_id": aid, "reason": "missing"})
+            elif hashlib.sha256(path.read_bytes()).hexdigest() != asset["sha256"]:
+                issues.append({"asset_id": aid, "reason": "checksum_mismatch"})
+            else:
+                paths.append((asset, path))
+        return issues, paths
+
+    @router.get("/pilot/readiness")
+    def readiness():
+        with lock:
+            m = load()
+            issues, _ = checked_assets(m)
+            characters = {c["character_id"]: c for c in m["characters"]}
+            blockers = []
+            for shot in m["shots"]:
+                reasons = []
+                if not shot["prompt"].strip():
+                    reasons.append("missing_prompt")
+                for cid in shot["character_ids"]:
+                    c = characters[cid]
+                    if not c.get("reference_asset_ids"):
+                        reasons.append("missing_character_reference")
+                    if shot.get("character_versions", {}).get(cid) != c["version"]:
+                        reasons.append("stale_character_version")
+                if reasons:
+                    blockers.append({"shot_id": shot["id"], "reasons": sorted(set(reasons))})
+            return {"planning_ready": not issues and not blockers, "asset_issues": issues,
+                    "shot_blockers": blockers, "real_video_ready": False,
+                    "paid_api_enabled": False, "budget_cny": 140}
+
+    @router.get("/pilot/backup")
+    def backup():
+        with lock:
+            m = load()
+            issues, paths = checked_assets(m)
+            if issues:
+                raise HTTPException(409, {"message": "素材缺失或校验失败，禁止导出不完整备份", "asset_issues": issues})
+            archive = tempfile.TemporaryFile()
+            try:
+                with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_STORED) as z:
+                    z.writestr("manifest.json", json.dumps(m, ensure_ascii=False, indent=2))
+                    for asset, path in paths:
+                        z.write(path, "assets/" + asset["id"])
+                archive.seek(0)
+            except Exception:
+                archive.close()
+                raise
+        def chunks():
+            try:
+                while chunk := archive.read(65536):
+                    yield chunk
+            finally:
+                archive.close()
+        return StreamingResponse(chunks(), media_type="application/zip", headers={
+            "Content-Disposition": 'attachment; filename="tiangong-pilot-backup.zip"'})
+
     @router.get("/storage")
     def storage():
         return {"ephemeral": os.getenv("EPHEMERAL_STORAGE", "false").lower() == "true",
@@ -120,11 +188,17 @@ def install_tiangong_routes(app, data_dir):
             asset_id = uuid.uuid4().hex
             folder = Path(data_dir) / "tiangong_assets"
             folder.mkdir(exist_ok=True)
+            if len(m.get("assets", [])) >= 100:
+                raise HTTPException(409, "试点素材上限100个")
             (folder / asset_id).write_bytes(content)
             asset = {"id": asset_id, "name": payload.name, "sha256": hashlib.sha256(content).hexdigest(),
                      "size": len(content), "kind": "reference", "provenance": "user_upload_unverified"}
             m.setdefault("assets", []).append(asset)
-            save(m)
+            try:
+                save(m)
+            except Exception:
+                (folder / asset_id).unlink(missing_ok=True)
+                raise
             return asset
 
     @router.post("/pilot/assets/image", status_code=201)

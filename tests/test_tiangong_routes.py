@@ -56,6 +56,9 @@ def test_asset_restart_and_character_invalidation(tmp_path):
     character['face'] = '新脸'
     result = restarted.put('/api/tiangong/pilot/characters/lead', json=character).json()
     assert result['shots'][0]['character_versions'] == {}
+    assert result['shots'][0]['reference_asset_ids'] == []
+    report = restarted.get('/api/tiangong/pilot/readiness').json()
+    assert 'stale_character_version' in report['shot_blockers'][0]['reasons']
     assert result['shots'][0]['approved'] is False
     character['reference_asset_ids'] = ['missing']
     assert restarted.put('/api/tiangong/pilot/characters/lead', json=character).status_code == 422
@@ -78,3 +81,35 @@ def test_large_image_upload_and_validation(tmp_path):
     assert TestClient(create_app(tmp_path)).get('/api/tiangong/pilot/assets/'+asset['id']).content == content
     assert client.post('/api/tiangong/pilot/assets/image', content=b'fake image').status_code == 422
     assert client.post('/api/tiangong/pilot/assets/image', content=b'x'*(10*1024*1024+1)).status_code == 413
+
+def test_backup_integrity_and_readiness(tmp_path):
+    import base64, json, zipfile
+    from io import BytesIO
+    client = TestClient(create_app(tmp_path))
+    character = dict(character_id='lead',name='主角',face='脸',hair='发',costume='衣',left_hand_ring='戒',waist_token='牌',shoes='鞋')
+    client.post('/api/tiangong/pilot', json=character)
+    report = client.get('/api/tiangong/pilot/readiness').json()
+    assert not report['planning_ready'] and len(report['shot_blockers']) == 18
+    data = b'reference'
+    asset = client.post('/api/tiangong/pilot/assets',json={'name':'ref','content_base64':base64.b64encode(data).decode()}).json()
+    backup = client.get('/api/tiangong/pilot/backup')
+    assert backup.status_code == 200
+    with zipfile.ZipFile(BytesIO(backup.content)) as z:
+        assert z.read('assets/'+asset['id']) == data
+        assert len(json.loads(z.read('manifest.json'))['shots']) == 18
+    path = tmp_path / 'tiangong_assets' / asset['id']
+    path.write_bytes(b'corrupt')
+    assert client.get('/api/tiangong/pilot/backup').status_code == 409
+    assert client.get('/api/tiangong/pilot/readiness').json()['asset_issues'][0]['reason'] == 'checksum_mismatch'
+    path.unlink()
+    assert client.get('/api/tiangong/pilot/readiness').json()['asset_issues'][0]['reason'] == 'missing'
+
+def test_tiangong_private_endpoints_require_login(tmp_path, monkeypatch):
+    monkeypatch.setenv('REQUIRE_AUTH', 'true')
+    monkeypatch.setenv('STUDIO_ACCESS_PASSWORD', 'unit-test-password-123')
+    client = TestClient(create_app(tmp_path), base_url='https://testserver')
+    for path in ('/pilot', '/pilot/backup', '/pilot/readiness', '/pilot/assets/anything', '/storage'):
+        assert client.get('/api/tiangong'+path).status_code == 401
+    assert client.post('/api/tiangong/pilot/assets/image', content=b'image').status_code == 401
+    assert client.post('/api/session', json={'password':'unit-test-password-123'}).status_code == 200
+    assert client.get('/api/tiangong/storage').status_code == 200
