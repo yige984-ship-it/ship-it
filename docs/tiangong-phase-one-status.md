@@ -1,6 +1,6 @@
 # Tiangong phase-one status
 
-Latest verification: 65 pytest checks passed (one dependency deprecation warning); browser workflow and 390px width check passed, zero JavaScript errors. Local asset persistence, backup download and offline restore implemented. Hosted durable storage and real AI generation remain pending.
+Latest verification: 66 pytest checks passed (one dependency deprecation warning); browser workflow and 390px width check passed, zero JavaScript errors. Local asset persistence, backup download and offline restore implemented. Hosted durable storage and real AI generation remain pending.
 
 Base: feature/tiangong-ai-studio-v1, 30f67971881e95df4e4181ba24b79d848084db28 (draft PR #2).
 
@@ -40,3 +40,12 @@ The initial search covered only the referenced chat and missed other project cha
 Imported 18 full shot entries (titles, narration, scenes, camera, action, sound) from chat 6af04667-eaa8-83ea-bbc0-1322a58e69fe, message 372db470-c117-43de-b099-2afdeb444b43. POST /api/tiangong/pilot/from-v23 creates a new pilot and rejects replacement with HTTP 409. Initialized the local development pilot with this content. Added right-hand ring, left-wrist accessories, chest mark and signature prop fields while preserving old API compatibility. V23 explicitly specifies a right-index ring; the left hand has no ring. Supporting characters/phantoms remain unresolved references and block planning readiness.
 
 A separate local 90s-review-v1 storyboard exists and differs in costume, accessories and shot sequence. It was not merged into v23. This recovered content is a transcription of the historical chat display, not a verified byte-for-byte copy of the uploaded original JSON. Real video and keyframes have not been generated or recovered. Browser import/binding/save/reload/backup/mobile checks passed with no JavaScript errors.
+
+
+## V24 review and rehearsal
+
+Added a separate read-only v24 storyboard viewer, leaving the v23 pilot intact. Three distinct review passes cover source/causality, local synthesized speech timing, and timeline/continuity. All eleven lines were measured with on-device Tingting speech at rates 180 and 150; the longest slow line is 3.324 seconds, before a 0.4-second lead. This is not final voice casting or actor performance verification.
+
+Created a 90.000-second 540x960, 12fps text-card rehearsal with 1080 frames and a 90.000-second audio track; complete decode passed after fixing an initial missing frame. It is explicitly labeled NOT an AI character video. Live model catalog/schema lookup was read-only; no paid generation or quote submission occurred. Reference assets and final visual acceptance remain pending.
+
+Latest pytest: 66 passed, one dependency deprecation warning. Browser acceptance includes reading all 18 review entries, preserving the original pilot, existing upload/binding/save/reload/backup flow and 390px layout; zero JavaScript errors.

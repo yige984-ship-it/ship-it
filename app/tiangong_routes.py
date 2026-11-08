@@ -69,6 +69,10 @@ def install_tiangong_routes(app, data_dir):
             c.execute("INSERT OR REPLACE INTO tiangong_manifests (id,body) VALUES ('pilot',?)",
                       (json.dumps(m, ensure_ascii=False),))
         return m
+    @router.get("/storyboards/v24")
+    def reviewed_storyboard():
+        return json.loads((Path(__file__).resolve().parent.parent / "config/tiangong/storyboard-v24-review.json").read_text())
+
     @router.post("/pilot", status_code=201)
     def initialize(character: CharacterPayload):
         with lock:

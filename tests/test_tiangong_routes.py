@@ -108,7 +108,7 @@ def test_tiangong_private_endpoints_require_login(tmp_path, monkeypatch):
     monkeypatch.setenv('REQUIRE_AUTH', 'true')
     monkeypatch.setenv('STUDIO_ACCESS_PASSWORD', 'unit-test-password-123')
     client = TestClient(create_app(tmp_path), base_url='https://testserver')
-    for path in ('/pilot', '/pilot/backup', '/pilot/readiness', '/pilot/assets/anything', '/storage'):
+    for path in ('/pilot', '/pilot/backup', '/pilot/readiness', '/pilot/assets/anything', '/storage', '/storyboards/v24'):
         assert client.get('/api/tiangong'+path).status_code == 401
     assert client.post('/api/tiangong/pilot/assets/image', content=b'image').status_code == 401
     assert client.post('/api/session', json={'password':'unit-test-password-123'}).status_code == 200
@@ -128,3 +128,12 @@ def test_v23_import_preserves_source_and_handedness(tmp_path):
     assert not client.get('/api/tiangong/pilot/readiness').json()['planning_ready']
     assert client.post('/api/tiangong/pilot/from-v23').status_code == 409
     assert client.get('/api/tiangong/pilot').json() == m
+
+def test_review_view_does_not_replace_existing_pilot(tmp_path):
+    client = TestClient(create_app(tmp_path))
+    before = client.post('/api/tiangong/pilot/from-v23').json()
+    review = client.get('/api/tiangong/storyboards/v24')
+    assert review.status_code == 200
+    assert len(review.json()['shots']) == 18
+    assert review.json()['verification_status']['real_video'] == 'not_generated'
+    assert client.get('/api/tiangong/pilot').json() == before
