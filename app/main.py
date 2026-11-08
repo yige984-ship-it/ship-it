@@ -12,6 +12,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, ConfigDict, model_validator
 from typing import Literal
+from .tiangong_routes import install_tiangong_routes
 from .planner import plan, recalculate, STYLES
 from .real_images import install_image_routes
 from .auth import install_auth
@@ -215,6 +216,7 @@ def create_app(data_dir=None):
             raise HTTPException(404, '视频文件已丢失，请重新合成')
         return FileResponse(path, media_type='video/mp4',
                             content_disposition_type='inline')
+    install_tiangong_routes(app, data)
     install_image_routes(app, data, get, save, lock)
     app.mount('/', StaticFiles(directory=ROOT / 'app/static', html=True), name='web')
     return app
