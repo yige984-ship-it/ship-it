@@ -1,6 +1,6 @@
 # Tiangong phase-one status
 
-Latest verification: 64 pytest checks passed (one dependency deprecation warning); browser workflow and 390px width check passed, zero JavaScript errors. Local asset persistence, backup download and offline restore implemented. Hosted durable storage and real AI generation remain pending.
+Latest verification: 65 pytest checks passed (one dependency deprecation warning); browser workflow and 390px width check passed, zero JavaScript errors. Local asset persistence, backup download and offline restore implemented. Hosted durable storage and real AI generation remain pending.
 
 Base: feature/tiangong-ai-studio-v1, 30f67971881e95df4e4181ba24b79d848084db28 (draft PR #2).
 
@@ -32,4 +32,11 @@ Authentication coverage explicitly checks pilot, storage, readiness, backup, ass
 
 Added `python -m app.tiangong_backup ARCHIVE NEW_DATA_DIR` for offline recovery. It only creates a new destination, rejects existing directories, validates allowed archive entries, per-file sizes and hashes, and never extracts arbitrary ZIP paths. Integration tests export from one app, restore into another directory, compare manifests and asset bytes, and verify corrupt or traversal-containing archives do not create a destination. This is an offline recovery utility, not a hosted restore UI. Tiangong database connections now close deterministically after transactions.
 
-Formal production content remains absent: the repository initializes 18 empty shot records, not an authored screenplay. The referenced chat was re-read and supplied no novel text or detailed shots. Source text or an approved storyboard is required before preparing a faithful generation run. No paid generation has been attempted.
+The initial search covered only the referenced chat and missed other project chats. A subsequent history search found the v23 storyboard display in 查找原文分镜 and chapter prose in 镇天项目推进. The v23 display is now transcribed into config/tiangong/storyboard-v23.json with thread/message attribution. The original uploaded JSON and historical keyframe files remain unverified. No paid generation has been attempted.
+
+
+## V23 content recovery
+
+Imported 18 full shot entries (titles, narration, scenes, camera, action, sound) from chat 6af04667-eaa8-83ea-bbc0-1322a58e69fe, message 372db470-c117-43de-b099-2afdeb444b43. POST /api/tiangong/pilot/from-v23 creates a new pilot and rejects replacement with HTTP 409. Initialized the local development pilot with this content. Added right-hand ring, left-wrist accessories, chest mark and signature prop fields while preserving old API compatibility. V23 explicitly specifies a right-index ring; the left hand has no ring. Supporting characters/phantoms remain unresolved references and block planning readiness.
+
+A separate local 90s-review-v1 storyboard exists and differs in costume, accessories and shot sequence. It was not merged into v23. This recovered content is a transcription of the historical chat display, not a verified byte-for-byte copy of the uploaded original JSON. Real video and keyframes have not been generated or recovered. Browser import/binding/save/reload/backup/mobile checks passed with no JavaScript errors.

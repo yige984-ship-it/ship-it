@@ -21,6 +21,10 @@ class CharacterBible:
     shoes: str
     reference_asset_ids: tuple[str, ...] = ()
     version: int = 1
+    right_hand_ring: str = ""
+    left_wrist: str = ""
+    chest_mark: str = ""
+    signature_prop: str = ""
 
     def validate(self) -> None:
         if not self.character_id.strip() or not self.name.strip():

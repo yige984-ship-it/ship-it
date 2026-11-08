@@ -113,3 +113,18 @@ def test_tiangong_private_endpoints_require_login(tmp_path, monkeypatch):
     assert client.post('/api/tiangong/pilot/assets/image', content=b'image').status_code == 401
     assert client.post('/api/session', json={'password':'unit-test-password-123'}).status_code == 200
     assert client.get('/api/tiangong/storage').status_code == 200
+
+def test_v23_import_preserves_source_and_handedness(tmp_path):
+    client = TestClient(create_app(tmp_path))
+    result = client.post('/api/tiangong/pilot/from-v23')
+    assert result.status_code == 201, result.text
+    m = result.json()
+    assert len(m['shots']) == 18 and sum(s['duration_s'] for s in m['shots']) == 90
+    assert m['shots'][0]['title'] == '破庙醒来'
+    assert m['shots'][-1]['title'] == '第二盏灯'
+    assert m['characters'][0]['right_hand_ring'] == '右手食指一枚暗银戒'
+    assert m['characters'][0]['left_hand_ring'].startswith('左手不戴戒指')
+    assert m['storyboard_source']['original_json_verified'] is False
+    assert not client.get('/api/tiangong/pilot/readiness').json()['planning_ready']
+    assert client.post('/api/tiangong/pilot/from-v23').status_code == 409
+    assert client.get('/api/tiangong/pilot').json() == m

@@ -27,6 +27,10 @@ class CharacterPayload(BaseModel):
     left_hand_ring: str = Field(min_length=1, max_length=1000)
     waist_token: str = Field(min_length=1, max_length=1000)
     shoes: str = Field(min_length=1, max_length=1000)
+    right_hand_ring: str = Field(default="", max_length=1000)
+    left_wrist: str = Field(default="", max_length=1000)
+    chest_mark: str = Field(default="", max_length=1000)
+    signature_prop: str = Field(default="", max_length=1000)
     reference_asset_ids: list[str] = Field(default_factory=list, max_length=20)
 
 class AssetPayload(BaseModel):
@@ -74,6 +78,15 @@ def install_tiangong_routes(app, data_dir):
             if character.reference_asset_ids:
                 raise HTTPException(422, "初始化后再上传并绑定参考素材")
             return save(create_pilot_manifest([CharacterBible(**character.model_dump())]))
+    @router.post("/pilot/from-v23", status_code=201)
+    def initialize_v23():
+        from .tiangong_storyboard import v23_manifest
+        with lock:
+            with connection() as c:
+                if c.execute("SELECT 1 FROM tiangong_manifests WHERE id='pilot'").fetchone():
+                    raise HTTPException(409, "项目已存在，禁止用分镜模板覆盖")
+            return save(v23_manifest())
+
     @router.get("/pilot")
     def get_pilot():
         return load()
@@ -136,6 +149,8 @@ def install_tiangong_routes(app, data_dir):
             blockers = []
             for shot in m["shots"]:
                 reasons = []
+                if shot.get("unresolved_characters"):
+                    reasons.append("unresolved_character_reference")
                 if not shot["prompt"].strip():
                     reasons.append("missing_prompt")
                 for cid in shot["character_ids"]:
