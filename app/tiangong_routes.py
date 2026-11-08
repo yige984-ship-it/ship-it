@@ -1,4 +1,5 @@
 """Persistent Tiangong pilot asset API. No video generation or paid calls."""
+from contextlib import contextmanager
 from io import BytesIO
 from PIL import Image, UnidentifiedImageError
 import tempfile
@@ -43,10 +44,15 @@ def install_tiangong_routes(app, data_dir):
     Path(data_dir).mkdir(parents=True, exist_ok=True)
     db = Path(data_dir) / "studio.sqlite3"
     lock = threading.RLock()
+    @contextmanager
     def connection():
         c = sqlite3.connect(db)
-        c.execute("CREATE TABLE IF NOT EXISTS tiangong_manifests (id TEXT PRIMARY KEY, body TEXT NOT NULL)")
-        return c
+        try:
+            with c:
+                c.execute("CREATE TABLE IF NOT EXISTS tiangong_manifests (id TEXT PRIMARY KEY, body TEXT NOT NULL)")
+                yield c
+        finally:
+            c.close()
     def load():
         with connection() as c:
             row = c.execute("SELECT body FROM tiangong_manifests WHERE id='pilot'").fetchone()

@@ -1,5 +1,7 @@
 # Tiangong phase-one status
 
+Latest verification: 64 pytest checks passed (one dependency deprecation warning); browser workflow and 390px width check passed, zero JavaScript errors. Local asset persistence, backup download and offline restore implemented. Hosted durable storage and real AI generation remain pending.
+
 Base: feature/tiangong-ai-studio-v1, 30f67971881e95df4e4181ba24b79d848084db28 (draft PR #2).
 
 Workbench: /tiangong. Supports one pilot, 18 fixed five-second shot records, character lock fields, reference uploads and bindings, and shot editing. Character edits invalidate dependent shot approval/provenance and captured versions. References are user uploads, not verified identity matches. No generation endpoint or paid API call was added. The workbench does not produce real AI video.
@@ -25,3 +27,9 @@ Added authenticated readiness and ZIP backup endpoints. Backup contains manifest
 Browser acceptance used an isolated temporary DATA_DIR and headless installed Chrome: initialize character, see 18 shots, upload >60 KB PNG, bind reference, save shot, reload and retain edits, show readiness blockers and download backup. No JavaScript errors. A 390px viewport overflow was found and fixed; the complete flow and mobile width check then passed. No production or user browser profile data was used. The earlier browser acceptance limitation is resolved for these tested flows.
 
 Authentication coverage explicitly checks pilot, storage, readiness, backup, asset download and image upload reject unauthenticated requests. Backups are downloadable archives; an automated restore flow is not yet implemented. Durable hosted storage remains pending; no Render changes or deployment were made.
+
+## Offline restore follow-up
+
+Added `python -m app.tiangong_backup ARCHIVE NEW_DATA_DIR` for offline recovery. It only creates a new destination, rejects existing directories, validates allowed archive entries, per-file sizes and hashes, and never extracts arbitrary ZIP paths. Integration tests export from one app, restore into another directory, compare manifests and asset bytes, and verify corrupt or traversal-containing archives do not create a destination. This is an offline recovery utility, not a hosted restore UI. Tiangong database connections now close deterministically after transactions.
+
+Formal production content remains absent: the repository initializes 18 empty shot records, not an authored screenplay. The referenced chat was re-read and supplied no novel text or detailed shots. Source text or an approved storyboard is required before preparing a faithful generation run. No paid generation has been attempted.

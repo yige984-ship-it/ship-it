@@ -61,6 +61,9 @@ def validate_manifest(manifest: dict[str, Any], *, final_export: bool = False) -
     budget = Decimal(str(manifest["budget_cny"]))
     if not budget.is_finite() or not 0 <= budget <= 140:
         raise ValueError("pilot budget must be between 0 and 140 CNY")
+    character_ids = [c["character_id"] for c in manifest["characters"]]
+    if not character_ids or len(character_ids) != len(set(character_ids)):
+        raise ValueError("characters must have unique nonempty ids")
     for c in manifest["characters"]:
         CharacterBible(**c).validate()
     shots = manifest["shots"]
