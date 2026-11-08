@@ -60,3 +60,21 @@ def test_asset_restart_and_character_invalidation(tmp_path):
     character['reference_asset_ids'] = ['missing']
     assert restarted.put('/api/tiangong/pilot/characters/lead', json=character).status_code == 422
     assert restarted.get('/api/tiangong/pilot/assets/missing').status_code == 404
+
+def test_large_image_upload_and_validation(tmp_path):
+    from io import BytesIO
+    from PIL import Image
+    client = TestClient(create_app(tmp_path))
+    c = dict(character_id='lead',name='主角',face='脸',hair='发',costume='衣',left_hand_ring='戒',waist_token='牌',shoes='鞋')
+    client.post('/api/tiangong/pilot', json=c)
+    image = BytesIO()
+    Image.new('RGB', (300,300)).save(image, format='PNG', compress_level=0)
+    content = image.getvalue()
+    assert len(content) > 60000
+    response = client.post('/api/tiangong/pilot/assets/image?name=reference.png', content=content)
+    assert response.status_code == 201, response.text
+    asset = response.json()
+    assert asset['media_type'] == 'image/png'
+    assert TestClient(create_app(tmp_path)).get('/api/tiangong/pilot/assets/'+asset['id']).content == content
+    assert client.post('/api/tiangong/pilot/assets/image', content=b'fake image').status_code == 422
+    assert client.post('/api/tiangong/pilot/assets/image', content=b'x'*(10*1024*1024+1)).status_code == 413

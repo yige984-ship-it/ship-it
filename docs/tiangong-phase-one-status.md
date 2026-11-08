@@ -11,3 +11,9 @@ Render's checked-in free configuration sets EPHEMERAL_STORAGE=true. This is not 
 Verification: Python 3.12.16; requirements installed; pip check passed; pytest: 59 passed, one Starlette/AnyIO deprecation warning; compileall and git diff --check passed. New integration coverage checks reference upload, invalid encoding, missing references, whitespace rejection, bindings, character version capture/invalidation and reads across app recreation. Local server starts. Browser tool timed out; visual and interactive browser acceptance remains pending.
 
 Budget: first round cap CNY 140, paid calls disabled; no paid calls made. Real generation, provenance verification, cinematic quality review and final video export remain incomplete. Existing original studio mock renderer remains explicitly simulated.
+
+## Reference image upload follow-up
+
+Added POST /api/tiangong/pilot/assets/image using raw image bytes, up to 10 MiB; PNG/JPEG/WebP only, validated with Pillow, maximum 25 million pixels. Workbench uses this endpoint. Global request limit remains unchanged for other endpoints. Image assets are capped at 100 through this endpoint. Failed manifest saves clean up the newly written image file. Legacy small-file upload remains for compatibility.
+
+New checks cover a >60 KB real PNG, persistence across app recreation, invalid image rejection and >10 MiB rejection. Browser interaction acceptance remains pending; no real AI generation performed.

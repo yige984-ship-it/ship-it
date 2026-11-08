@@ -100,6 +100,8 @@ def create_app(data_dir=None):
     @app.middleware('http')
     async def size_limit(request, call_next):
         limit = int(os.getenv('MAX_REQUEST_BYTES', '100000'))
+        if request.method == 'POST' and request.url.path == '/api/tiangong/pilot/assets/image':
+            limit = 10 * 1024 * 1024
         if request.method in ('POST', 'PUT', 'PATCH'):
             body = bytearray()
             async for chunk in request.stream():

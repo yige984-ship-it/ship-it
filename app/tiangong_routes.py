@@ -1,4 +1,6 @@
 """Persistent Tiangong pilot asset API. No video generation or paid calls."""
+from io import BytesIO
+from PIL import Image, UnidentifiedImageError
 import os
 import base64
 import hashlib
@@ -7,7 +9,7 @@ import json
 import sqlite3
 import threading
 from pathlib import Path
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field, ConfigDict
 from .tiangong import CharacterBible, create_pilot_manifest, validate_manifest
@@ -123,6 +125,41 @@ def install_tiangong_routes(app, data_dir):
                      "size": len(content), "kind": "reference", "provenance": "user_upload_unverified"}
             m.setdefault("assets", []).append(asset)
             save(m)
+            return asset
+
+    @router.post("/pilot/assets/image", status_code=201)
+    async def upload_image(request: Request, name: str = "reference"):
+        content = await request.body()
+        if not content or len(content) > 10 * 1024 * 1024:
+            raise HTTPException(413, "参考图片须为1字节至10 MB")
+        if not name.strip() or len(name) > 100:
+            raise HTTPException(422, "素材名称须为1至100字")
+        try:
+            with Image.open(BytesIO(content)) as image:
+                if image.format not in ("PNG", "JPEG", "WEBP") or image.width * image.height > 25_000_000:
+                    raise HTTPException(422, "仅支持2500万像素以内PNG、JPEG、WebP")
+                media_type = Image.MIME[image.format]
+                image.verify()
+        except (UnidentifiedImageError, OSError, Image.DecompressionBombError):
+            raise HTTPException(422, "图片文件损坏或格式无效")
+        with lock:
+            m = load()
+            if len(m.get("assets", [])) >= 100:
+                raise HTTPException(409, "试点素材上限100个")
+            asset_id = uuid.uuid4().hex
+            folder = Path(data_dir) / "tiangong_assets"
+            folder.mkdir(exist_ok=True)
+            path = folder / asset_id
+            path.write_bytes(content)
+            asset = {"id": asset_id, "name": name.strip(), "sha256": hashlib.sha256(content).hexdigest(),
+                     "size": len(content), "kind": "reference", "media_type": media_type,
+                     "provenance": "user_upload_unverified"}
+            m.setdefault("assets", []).append(asset)
+            try:
+                save(m)
+            except Exception:
+                path.unlink(missing_ok=True)
+                raise
             return asset
 
     @router.get("/pilot/assets/{asset_id}")
