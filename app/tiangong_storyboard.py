@@ -4,6 +4,20 @@ from pathlib import Path
 from .tiangong import CharacterBible, create_pilot_manifest, validate_manifest
 
 
+def production_manifest():
+    source = json.loads((Path(__file__).resolve().parent.parent / 'config/tiangong/storyboard-production-v4.json').read_text())
+    m = create_pilot_manifest([CharacterBible(**c) for c in source['characters']])
+    m['storyboard_version'] = source['version']
+    m['reference_requirements'] = source['reference_requirements']
+    for shot, original in zip(m['shots'], source['shots'], strict=True):
+        if shot['id'] != original['id']:
+            raise ValueError('storyboard ids mismatch')
+        shot.update(original)
+        shot['character_versions'] = {cid: 1 for cid in shot['character_ids']}
+    validate_manifest(m)
+    return m
+
+
 def v23_manifest():
     source = json.loads((Path(__file__).resolve().parent.parent / 'config/tiangong/storyboard-v23.json').read_text())
     m = create_pilot_manifest([CharacterBible(**source['character'])])

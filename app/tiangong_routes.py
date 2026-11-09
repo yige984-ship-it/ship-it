@@ -42,6 +42,15 @@ class ShotPayload(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
     prompt: str = Field(max_length=4000)
     character_ids: list[str] = Field(default_factory=list, max_length=20)
+    title: str | None = Field(default=None, max_length=200)
+    narration: str | None = Field(default=None, max_length=1000)
+    speaker: str | None = Field(default=None, max_length=200)
+    lamp_state: str | None = Field(default=None, max_length=100)
+    unresolved_characters: list[str] | None = Field(default=None, max_length=20)
+
+class KeyframePayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    asset_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{32}$")
 
 def install_tiangong_routes(app, data_dir):
     router = APIRouter(prefix="/api/tiangong", tags=["tiangong"])
@@ -94,6 +103,28 @@ def install_tiangong_routes(app, data_dir):
     @router.get("/pilot")
     def get_pilot():
         return load()
+    @router.post("/pilot/from-production-v4", status_code=201)
+    def initialize_production():
+        from .tiangong_storyboard import production_manifest
+        with lock:
+            with connection() as c:
+                if c.execute("SELECT 1 FROM tiangong_manifests WHERE id='pilot'").fetchone():
+                    raise HTTPException(409, "项目已存在，禁止用新模板覆盖")
+            return save(production_manifest())
+    @router.post("/pilot/characters", status_code=201)
+    def add_character(payload: CharacterPayload):
+        with lock:
+            m = load()
+            if any(c["character_id"] == payload.character_id for c in m["characters"]):
+                raise HTTPException(409, "角色已存在，请使用更新接口，禁止覆盖")
+            if len(m["characters"]) >= 20:
+                raise HTTPException(409, "试点角色上限20个")
+            if set(payload.reference_asset_ids) - {a["id"] for a in m.get("assets", [])}:
+                raise HTTPException(422, "参考素材不存在")
+            character = CharacterBible(**payload.model_dump())
+            character.validate()
+            m["characters"].append(dict(payload.model_dump(), version=1))
+            return save(m)
     @router.put("/pilot/characters/{character_id}")
     def update_character(character_id: str, payload: CharacterPayload):
         if character_id != payload.character_id:
@@ -104,11 +135,14 @@ def install_tiangong_routes(app, data_dir):
                 raise HTTPException(422, "参考素材不存在")
             for i, c in enumerate(m["characters"]):
                 if c["character_id"] == character_id:
+                    if all(c.get(k) == v for k, v in payload.model_dump().items()):
+                        return m
                     updated = dict(c, **payload.model_dump(), version=c["version"] + 1)
                     CharacterBible(**updated).validate()
                     m["characters"][i] = updated
                     for shot in m["shots"]:
                         if character_id in shot["character_ids"]:
+                            shot["keyframe_needs_review"] = bool(shot.get("keyframe_asset_id"))
                             shot.update(status="draft", approved=False, video_asset_id=None, provider_job_id=None, character_versions={}, reference_asset_ids=[])
                     return save(m)
             raise HTTPException(404, "角色不存在")
@@ -122,10 +156,30 @@ def install_tiangong_routes(app, data_dir):
             if unknown:
                 raise HTTPException(422, "引用了未知角色")
             s = m["shots"][shot_id - 1]
+            if s["prompt"] != payload.prompt or s["character_ids"] != payload.character_ids:
+                s["keyframe_needs_review"] = bool(s.get("keyframe_asset_id"))
             s["reference_asset_ids"] = sorted({a for c in m["characters"] if c["character_id"] in payload.character_ids for a in c.get("reference_asset_ids", [])})
             s.update(prompt=payload.prompt, character_ids=payload.character_ids,
                      status="draft", approved=False, video_asset_id=None, provider_job_id=None, character_versions={})
+            s.update(payload.model_dump(exclude_none=True, exclude={"prompt", "character_ids"}))
             s["character_versions"] = {c["character_id"]: c["version"] for c in m["characters"] if c["character_id"] in payload.character_ids}
+            return save(m)
+    @router.put("/pilot/shots/{shot_id}/keyframe")
+    def bind_keyframe(shot_id: int, payload: KeyframePayload):
+        if not 1 <= shot_id <= 18:
+            raise HTTPException(404, "镜头不存在")
+        with lock:
+            m = load()
+            if payload.asset_id is not None:
+                asset = next((a for a in m.get("assets", []) if a["id"] == payload.asset_id), None)
+                if not asset or not asset.get("media_type", "").startswith("image/"):
+                    raise HTTPException(422, "候选图必须引用已上传的图片素材")
+                issues, _ = checked_assets({"assets": [asset]})
+                if issues:
+                    raise HTTPException(409, "候选图文件缺失或校验失败")
+            s = m["shots"][shot_id - 1]
+            s.update(keyframe_asset_id=payload.asset_id, keyframe_needs_review=bool(payload.asset_id),
+                     status="draft", approved=False, video_asset_id=None, provider_job_id=None)
             return save(m)
     def checked_assets(m):
         issues = []
@@ -150,6 +204,7 @@ def install_tiangong_routes(app, data_dir):
             m = load()
             issues, _ = checked_assets(m)
             characters = {c["character_id"]: c for c in m["characters"]}
+            assets = {a["id"]: a for a in m.get("assets", [])}
             blockers = []
             for shot in m["shots"]:
                 reasons = []
@@ -161,6 +216,9 @@ def install_tiangong_routes(app, data_dir):
                     c = characters[cid]
                     if not c.get("reference_asset_ids"):
                         reasons.append("missing_character_reference")
+                    elif any(aid not in assets or not assets[aid].get("media_type", "").startswith("image/")
+                             for aid in c["reference_asset_ids"]):
+                        reasons.append("invalid_character_reference")
                     if shot.get("character_versions", {}).get(cid) != c["version"]:
                         reasons.append("stale_character_version")
                 if reasons:

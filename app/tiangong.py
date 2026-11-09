@@ -78,6 +78,11 @@ def validate_manifest(manifest: dict[str, Any], *, final_export: bool = False) -
     ids = {c["character_id"] for c in manifest["characters"]}
     if any(set(s["character_ids"]) - ids for s in shots):
         raise ValueError("unknown character reference")
+    assets = {a["id"]: a for a in manifest.get("assets", [])}
+    for shot in shots:
+        aid = shot.get("keyframe_asset_id")
+        if aid and (aid not in assets or not assets[aid].get("media_type", "").startswith("image/")):
+            raise ValueError("keyframe must reference an existing image asset")
     if manifest["paid_api_enabled"]:
         raise ValueError("phase one must not enable paid API")
     if final_export and any(not (s["approved"] and s["video_asset_id"] and s["provider_job_id"]) for s in shots):

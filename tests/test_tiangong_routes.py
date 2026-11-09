@@ -137,3 +137,120 @@ def test_review_view_does_not_replace_existing_pilot(tmp_path):
     assert len(review.json()['shots']) == 18
     assert review.json()['verification_status']['real_video'] == 'not_generated'
     assert client.get('/api/tiangong/pilot').json() == before
+
+
+def test_keyframe_binding_integrity_and_backup(tmp_path):
+    from io import BytesIO
+    from PIL import Image
+    from app.tiangong_backup import restore_backup
+    client = TestClient(create_app(tmp_path/'source'))
+    c = dict(character_id='lead', name='主角', face='脸', hair='发', costume='衣',
+             left_hand_ring='无', waist_token='无', shoes='草鞋')
+    assert client.post('/api/tiangong/pilot', json=c).status_code == 201
+    image = BytesIO()
+    Image.new('RGB', (9, 16)).save(image, format='PNG')
+    a = client.post('/api/tiangong/pilot/assets/image?name=frame.png', content=image.getvalue()).json()
+    endpoint = '/api/tiangong/pilot/shots/1/keyframe'
+    assert client.put(endpoint, json={'asset_id':'a'*32}).status_code == 422
+    assert client.put(endpoint, json={'asset_id':'../escape'}).status_code == 422
+    assert client.put('/api/tiangong/pilot/shots/19/keyframe', json={'asset_id':a['id']}).status_code == 404
+    result = client.put(endpoint, json={'asset_id':a['id']})
+    assert result.status_code == 200, result.text
+    shot = result.json()['shots'][0]
+    assert shot['keyframe_asset_id'] == a['id'] and shot['keyframe_needs_review']
+    assert not shot['approved'] and shot['video_asset_id'] is None and shot['provider_job_id'] is None
+    client.put('/api/tiangong/pilot/shots/1', json={'prompt':'新描述', 'character_ids':['lead']})
+    assert client.get('/api/tiangong/pilot').json()['shots'][0]['keyframe_needs_review']
+    client.put('/api/tiangong/pilot/characters/lead', json=c)
+    before = client.get('/api/tiangong/pilot').json()
+    archive = tmp_path/'backup.zip'
+    archive.write_bytes(client.get('/api/tiangong/pilot/backup').content)
+    restore_backup(archive, tmp_path/'restored')
+    restored = TestClient(create_app(tmp_path/'restored'))
+    assert restored.get('/api/tiangong/pilot').json() == before
+    assert restored.get('/api/tiangong/pilot/assets/'+a['id']).content == image.getvalue()
+    (tmp_path/'source'/'tiangong_assets'/a['id']).write_bytes(b'corrupt')
+    assert client.put(endpoint, json={'asset_id':a['id']}).status_code == 409
+    assert client.put(endpoint, json={'asset_id':None}).json()['shots'][0]['keyframe_asset_id'] is None
+
+
+def test_revision_metadata_does_not_leave_old_story_labels(tmp_path):
+    client = TestClient(create_app(tmp_path))
+    before = client.post('/api/tiangong/pilot/from-v23').json()
+    assert before['shots'][6]['unresolved_characters']
+    response = client.put('/api/tiangong/pilot/shots/7', json={
+        'prompt':'古纹石台，规则说明，香未亮', 'character_ids':['shen_zhixian'],
+        'title':'留下的条件', 'narration':'香头见火者，留在外门。',
+        'speaker':'灰袍执事', 'lamp_state':'concealed_or_out_of_frame',
+        'unresolved_characters':['灰袍执事']})
+    assert response.status_code == 200, response.text
+    shot = response.json()['shots'][6]
+    assert shot['title']=='留下的条件'
+    assert shot['unresolved_characters']==['灰袍执事']
+    assert shot['narration']=='香头见火者，留在外门。'
+    assert shot['character_versions']=={'shen_zhixian':1}
+    # Legacy editor saves must preserve revision metadata, not erase it.
+    response = client.put('/api/tiangong/pilot/shots/7', json={
+        'prompt':'再次调整石台镜头', 'character_ids':['shen_zhixian']})
+    assert response.json()['shots'][6]['title']=='留下的条件'
+    report = client.get('/api/tiangong/pilot/readiness').json()
+    assert 'unresolved_character_reference' in next(b for b in report['shot_blockers'] if b['shot_id']==7)['reasons']
+
+
+def test_add_role_preserves_project_and_invalidates_only_dependent_shots(tmp_path):
+    client = TestClient(create_app(tmp_path))
+    lead = dict(character_id='lead',name='主角',face='脸',hair='发',costume='衣',left_hand_ring='无',waist_token='无',shoes='草鞋')
+    client.post('/api/tiangong/pilot',json=lead)
+    role = dict(lead,character_id='xu',name='许管事',face='灰白眉老人')
+    result = client.post('/api/tiangong/pilot/characters',json=role)
+    assert result.status_code==201
+    assert len(result.json()['characters'])==2
+    assert client.post('/api/tiangong/pilot/characters',json=role).status_code==409
+    assert client.post('/api/tiangong/pilot/characters',json=dict(role,character_id='bad',reference_asset_ids=['missing'])).status_code==422
+    client.put('/api/tiangong/pilot/shots/13',json={'prompt':'东屋教学','character_ids':['lead','xu'],'unresolved_characters':[]})
+    client.put('/api/tiangong/pilot/shots/1',json={'prompt':'破庙初醒','character_ids':['lead']})
+    before=client.get('/api/tiangong/pilot').json()
+    updated=client.put('/api/tiangong/pilot/characters/xu',json=dict(role,face='修订许管事')).json()
+    assert updated['shots'][12]['character_versions']=={}
+    assert updated['shots'][0]==before['shots'][0]
+    assert TestClient(create_app(tmp_path)).get('/api/tiangong/pilot').json()==updated
+
+
+def test_unchanged_character_save_preserves_shots_and_versions(tmp_path):
+    client=TestClient(create_app(tmp_path))
+    c=dict(character_id='lead',name='主角',face='脸',hair='发',costume='衣',left_hand_ring='无',waist_token='无',shoes='草鞋')
+    client.post('/api/tiangong/pilot',json=c)
+    client.put('/api/tiangong/pilot/shots/1',json={'prompt':'保持现有镜头','character_ids':['lead']})
+    before=client.get('/api/tiangong/pilot').json()
+    assert client.put('/api/tiangong/pilot/characters/lead',json=c).json()==before
+    assert TestClient(create_app(tmp_path)).get('/api/tiangong/pilot').json()==before
+
+
+def test_non_image_reference_cannot_pass_planning_checks(tmp_path):
+    import base64
+    client=TestClient(create_app(tmp_path))
+    c=dict(character_id='lead',name='主角',face='脸',hair='发',costume='衣',left_hand_ring='无',waist_token='无',shoes='草鞋')
+    client.post('/api/tiangong/pilot',json=c)
+    a=client.post('/api/tiangong/pilot/assets',json={'name':'looks-like.png','content_base64':base64.b64encode(b'not an image').decode()}).json()
+    client.put('/api/tiangong/pilot/characters/lead',json=dict(c,reference_asset_ids=[a['id']]))
+    client.put('/api/tiangong/pilot/shots/1',json={'prompt':'有文字文件充当脸图','character_ids':['lead']})
+    report=client.get('/api/tiangong/pilot/readiness').json()
+    assert not report['planning_ready']
+    assert 'invalid_character_reference' in report['shot_blockers'][0]['reasons']
+
+
+def test_current_production_import_never_copies_machine_asset_ids_or_overwrites(tmp_path):
+    client=TestClient(create_app(tmp_path))
+    response=client.post('/api/tiangong/pilot/from-production-v4')
+    assert response.status_code==201,response.text
+    m=response.json()
+    assert len(m['characters'])==5 and len(m['shots'])==18
+    assert sum(s['duration_s'] for s in m['shots'])==90
+    assert m['shots'][6]['narration']=='香火稳住，方留外门。'
+    assert '时间' in m['shots'][10]['action']
+    assert all(not c['reference_asset_ids'] for c in m['characters'])
+    assert all(not s['approved'] and not s['video_asset_id'] for s in m['shots'])
+    assert not client.get('/api/tiangong/pilot/readiness').json()['planning_ready']
+    assert client.post('/api/tiangong/pilot/from-production-v4').status_code==409
+    assert client.post('/api/tiangong/pilot/from-v23').status_code==409
+    assert TestClient(create_app(tmp_path)).get('/api/tiangong/pilot').json()==m

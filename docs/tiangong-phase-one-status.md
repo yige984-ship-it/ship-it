@@ -1,5 +1,16 @@
 # Tiangong phase-one status
 
+## Current audit — 2026-11-09
+
+72 pytest checks pass (one dependency deprecation warning). Current production-v4 import creates 18 five-second shots and five role profiles without machine-specific asset IDs, rejects replacement of existing projects, and remains unready until image references are uploaded. V23 remains an explicitly historical import. Static candidate binding, per-role selection and preservation of other roles in a shot are implemented. Saving an unchanged role no longer invalidates shots; non-image references cannot pass planning readiness.
+
+Local project: 18 current static candidates, five role profiles, 53 stored assets. Supporting portraits are working candidates, not user-approved final designs. Asset readback, fresh-directory restore, browser previews, role switching and 390px layout were checked. Local assets/backups are intentionally not committed; restoring production data requires the separately delivered backup.
+
+Production-v4 incorporates the user-selected downward-elongated three-star emblem and elapsed burn-time edit for longer incense ash. Rule dialogue is adapted to require stable flame; failed stability followed by anomalous gold markings explains separate placement. Full motion, lip sync, identity across frames and final seal-script typography remain unverified. Actual AI video generation: zero seconds; no paid generation submitted. Model catalog/schema queries were read-only. A 5-second shot-14 probe request is prepared but needs separate paid-call confirmation. No main merge or production deploy.
+
+The older entries below describe historical milestones, not current production acceptance.
+
+
 Latest verification: 66 pytest checks passed (one dependency deprecation warning); browser workflow and 390px width check passed, zero JavaScript errors. Local asset persistence, backup download and offline restore implemented. Hosted durable storage and real AI generation remain pending.
 
 Base: feature/tiangong-ai-studio-v1, 30f67971881e95df4e4181ba24b79d848084db28 (draft PR #2).
